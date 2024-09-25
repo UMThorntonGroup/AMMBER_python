@@ -25,7 +25,7 @@ class BinaryIsothermalDiscretePhase:
 
     def resample(self, xpoints):
         """
-        Returns a new BinaryIsothrmalDiscretePhase object by interpolating between points onto xpoints. (cubic spline)
+        Returns a new BinaryIsothermalDiscretePhase object by interpolating between points onto xpoints. (cubic spline)
         
         Parameters
         ----------
