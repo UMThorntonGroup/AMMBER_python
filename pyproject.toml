@@ -58,5 +58,8 @@ classifiers=[
     'Programming Language :: Python :: 3.5',
 ]
 
+[tool.setuptools.packages.find]
+include = ["ammber"]
+
 [project.urls]
 Homepage = "https://github.com/UMThorntongroup/"
