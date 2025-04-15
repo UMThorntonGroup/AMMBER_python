@@ -5,9 +5,25 @@ name: Python package
 
 on:
   push:
-    branches: [ "main" ]
+      branches:
+        - main
   pull_request:
-    branches: [ "main" ]
+      branches:
+        - main
+        - devel
+        - packaging-updates
+      types:
+        - opened
+        - reopened
+        - synchronize
+        - ready_for_review
+      paths-ignore:
+        - 'tests/**'
+
+
+concurrency:
+  group: ${{ github.event_name }}-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request'}}
 
 jobs:
   build:
