@@ -17,8 +17,6 @@ on:
         - reopened
         - synchronize
         - ready_for_review
-      paths-ignore:
-        - 'tests/**'
 
 
 concurrency:
@@ -26,7 +24,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request'}}
 
 jobs:
-  build:
+  build-lint-pytest:
 
     runs-on: ubuntu-latest
     strategy:
