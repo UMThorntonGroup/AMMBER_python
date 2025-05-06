@@ -59,6 +59,8 @@ jobs:
     environment:
       name: test_pypi_release
       url: https://test.pypi.org/p/ammber
+    permissions:
+      id-token: write
 
     steps:
       - name: Retrieve release distributions
