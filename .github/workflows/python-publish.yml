@@ -57,7 +57,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: release-build
     environment:
-      name: test_pypi_release
+      name: release
       url: https://test.pypi.org/p/ammber
     permissions:
       id-token: write
