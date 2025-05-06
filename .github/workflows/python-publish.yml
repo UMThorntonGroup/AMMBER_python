@@ -58,7 +58,7 @@ jobs:
     needs: release-build
     environment:
       name: test_pypi_release
-      url: https://test.pypi.org/project/ammber
+      url: https://test.pypi.org/p/ammber
 
     steps:
       - name: Retrieve release distributions
