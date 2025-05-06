@@ -1,3 +1,26 @@
+def add_to_dict(binaryIsothermalSys, dict):
+    """
+    Adds the parameters of a BinaryIsothermal2ndOrderSystem to a dictionary
+    Parameters
+    ----------
+    binaryIsothermalSys : BinaryIsothermal2ndOrderSystem
+        system to draw parameters from
+    dict : dict
+        dictionary to add parameters to
+    """
+    for phase_name in binaryIsothermalSys.phases.keys():
+        phase = binaryIsothermalSys.phases[phase_name]
+        if phase_name not in dict:
+            dict[phase_name] = {}
+        for comp in phase.components:
+            if comp not in dict[phase_name]:
+                dict[phase_name][comp] = {}
+            dict[phase_name][comp]["k_well"] = phase.k_well
+            dict[phase_name][comp]["c_min"] = phase.c_min
+            dict[phase_name][comp]["f_min"] = phase.f_min
+
+
+
 def write_binary_isothermal_parabolic_parameters(binaryIsothermalSys, output_file, template_file, phases=None, component="comp_1"):
     """
     Creates a parameters file from a BinaryIsothermal2ndOrderSystem
