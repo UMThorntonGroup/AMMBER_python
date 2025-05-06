@@ -28,6 +28,8 @@ jobs:
             This is an automated release for version ${{ github.ref_name }}.
           draft: true
           prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   release-build:
     runs-on: ubuntu-latest
