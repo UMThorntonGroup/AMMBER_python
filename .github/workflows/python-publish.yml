@@ -26,7 +26,7 @@ jobs:
           release_name: Release ${{ github.ref_name }}
           body: |
             This is an automated release for version ${{ github.ref_name }}.
-          draft: false
+          draft: true
           prerelease: false
 
   release-build:
@@ -55,8 +55,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: release-build
     environment:
-      name: release
-      url: https://pypi.org/project/ammber
+      name: test_pypi_release
+      url: https://test.pypi.org/project/ammber
 
     steps:
       - name: Retrieve release distributions
