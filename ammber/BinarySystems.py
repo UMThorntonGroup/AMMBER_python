@@ -4,6 +4,9 @@ from scipy.interpolate import CubicSpline
 import numpy as np
 from pycalphad import calculate
 from ammber.utils import write_binary_isothermal_parabolic_parameters
+import copy
+import matplotlib.pyplot as plt
+
 class BinaryIsothermalDiscretePhase:
     "Class representing a single phase at one temperature described by a set of points in composition-Gibbs free energy space"
     def __init__(self, xdata, Gdata):
@@ -476,3 +479,307 @@ def get_lower_convex_hull(inputpoints):
     else:
         lower_convex_hull = points[minx:maxx]
     return lower_convex_hull
+
+def linear_model(T, a0, a1):
+    """
+    Computes the linear model a0 + a1 * T.
+    Returns the computed value of the linear model for the given input T.
+
+    Parameters
+    ----------
+    T : numeric
+        The input variable (typically time or some other independent variable).
+    a0 : numeric
+        The y-intercept of the linear model.
+    a1 : numeric
+        The slope of the linear model.
+        
+    Returns
+    -------
+    numeric
+    """
+    return a0 + a1 * T
+
+class BinaryDiscreteSystem:
+    "Class representing a single phase at multiple temperatures described by a set of points in composition-Gibbs free energy space"
+    def __init__(self, temperature_list=[], system_list=[]):
+        """
+        Initialize the BinaryDiscreteSystem with a list of temperatures and corresponding systems.
+
+        Parameters
+        ----------
+        temperature_list : list (float)
+            List of temperatures.
+        system_list : list (BinaryIsothermalDiscretePhase object)
+            List of systems corresponding to each temperature.
+        """
+        self.isothermal_systems = dict(zip(temperature_list, system_list))
+
+    def add_temperature(self, temperature, system):
+        """
+        Add a system at a specific temperature.
+
+        Parameters
+        ----------
+        temperature : numeric
+            The temperature at which the system is added.
+        system : BinaryIsothermalDiscretePhase object
+            The system to be added.
+        """
+        self.isothermal_systems[temperature] = system
+
+    def fromTDB(self, db, elements, component, temperature_list, phase_list=None):
+        """
+        Constructs discrete phase from all the phases under different temperatures specified in a pycalphad database
+
+        Parameters
+        ----------
+        db : pycalphad database
+        elements : list (string)
+            The space of compositions of interest (Binary). Element abbreviations must be all-caps.
+        componenet : string
+            Element abbreviation for element corresponding to x=1.
+        temperature_list : list (float)
+            List of temperatures to initialize the system at.
+        phase_list : list (string)
+            If specified, only listed phases will be constructed, otherwise, all available phases will be constructed.
+        """
+        for temperature in temperature_list:
+            system = BinaryIsothermalDiscreteSystem()
+            system.fromTDB(db, elements, component, temperature, phase_list=phase_list)
+            system_copy = copy.deepcopy(system)
+            self.isothermal_systems[temperature] = system_copy
+
+    def resample_near_equilibrium(self, x, xdist=0.001, npts=101):
+        """
+        Returns systems that only contains points and phases near compositions of the phases present at equilibrium at x
+        
+        Parameters
+        ----------
+        x : float
+            composition to be sampled
+        xdist : float
+            (optional) the range of compositions to be sampled around the points of interest
+        npts : positive int
+            number of points to sample from each phase
+
+        Returns
+        -------
+        BinaryDiscreteSystem object
+        """
+        resampled_data = BinaryDiscreteSystem()
+        resampled_data.isothermal_systems = {}
+        for temperature, isothermal_system in self.isothermal_systems.items():
+            resampled_system = isothermal_system.resample_near_equilibrium(x, xdist=xdist, npts=npts)
+            resampled_data.isothermal_systems[temperature] = resampled_system
+        return resampled_data
+    
+    def add_phases(self, other):
+        """
+        Add phases from another BinaryDiscreteSystem.
+
+        Parameters
+        ----------
+        other : BinaryDiscreteSystem object
+            Another BinaryDiscreteSystem instance to add phases from.
+        """
+        for temp, other_system in other.isothermal_systems.items():
+            if temp in self.isothermal_systems:
+                self_system = self.isothermal_systems[temp]
+                for phase_name, phase in other_system.phases.items():
+                    if phase_name not in self_system.phases:
+                        self_system.phases[phase_name] = copy.deepcopy(phase)
+
+class Binary2ndOrderSystem:
+    "Class representing a set of phases at multiple temperatures described by a second order polynomial (parabola)"
+    def __init__(self, temperature_list=[], system_list=[]):
+        """
+        Initialize the Binary2ndOrderSystem with a list of temperatures and corresponding systems.
+
+        Parameters
+        ----------
+        temperature_list : list
+            List of temperatures.
+        system_list : list
+            List of systems corresponding to each temperature.
+        """
+        self.isothermal_systems = dict(zip(temperature_list, system_list))
+        self.fitted_parameters = {}  # Dictionary to store fitted parameters
+
+    def from_discrete(self, discrete_system, kwellmax_dict=None):
+        """
+        uilds parabolic phases from a discrete system using a fit
+
+        Parameters
+        ----------
+        discrete_system : BinaryDiscreteSystem
+            The discrete system to initialize from.
+        kwellmax_dict : dict, optional
+            Dictionary mapping temperatures to kwellmax values.
+        """
+        if kwellmax_dict is None:
+            kwellmax_dict = {T: 1e6 for T in self.isothermal_systems.keys()}
+        
+        # Iterate through isothermal systems and initialize from discrete system
+        for T, system in self.isothermal_systems.items():
+            if T in kwellmax_dict:
+                system.from_discrete(discrete_system.isothermal_systems[T], kwellmax=kwellmax_dict[T])
+
+    def from_discrete_near_equilibrium(self, discrete_systems, x, kwellmax_dict=None, xdist_dict=None, npts_dict=None):
+        """
+        Builds parabolic phases from a discrete system by fitting near phase-boundaries.
+
+        Parameters
+        ----------
+        discrete_systems : BinaryDiscreteSystem
+            discrete system to be fit
+        x : float
+            composition to detemine equilibrium compositions from
+        kwellmax_dict : dict, optional
+            Dictionary mapping temperatures to kwellmax values.
+        xdist_dict : dict, optional
+            Dictionary mapping temperatures to xdist values.
+        npts_dict : dict, optional
+            Dictionary mapping temperatures to npts values.
+        """
+        if kwellmax_dict is None:
+            kwellmax_dict = {T: 1e7 for T in self.isothermal_systems.keys()}
+        if xdist_dict is None:
+            xdist_dict = {T: 0.001 for T in self.isothermal_systems.keys()}
+        if npts_dict is None:
+            npts_dict = {T: 101 for T in self.isothermal_systems.keys()}
+
+        # Iterate through isothermal systems and initialize near equilibrium
+        for T, system in self.isothermal_systems.items():
+            if T in kwellmax_dict and T in xdist_dict and T in npts_dict:
+                neareq_system = discrete_systems.isothermal_systems[T].resample_near_equilibrium(x, xdist=xdist_dict[T], npts=npts_dict[T])
+                system.from_discrete(neareq_system, kwellmax=kwellmax_dict[T])
+
+    def to_discrete(self, xdata=None, xrange=(1e-14, 1.0 - 1e-14), npts_dict=None):
+        """
+        Builds discrete systems of phases by evaluating free energies on a range
+        Provide either xdata, or a range and number of points.
+
+        Parameters
+        ----------
+        xdata : list (float)
+            compositions to be sampled
+        xrange : tuple (min, max)
+            range of compositions to be linearly sampled
+        npts : dict
+            number of points to be sampled from in xrange
+
+        Returns
+        -------
+        BinaryDiscretePhase object
+        """
+        discrete_systems = BinaryDiscreteSystem()
+
+        if npts_dict is None:
+            npts_dict = {T: 1001 for T in self.isothermal_systems.keys()}
+        
+        # Add temperatures and corresponding systems to the discrete system
+        for T, system in self.isothermal_systems.items():
+            if T in npts_dict:
+                discrete_systems.add_temperature(T, system.to_discrete(xdata=xdata, xrange=xrange, npts=npts_dict[T]))
+
+        return discrete_systems
+    
+    def fit_parameters(self, phase_name):
+        """
+        Fit the parameters (A, B, D) of a phase.
+
+        Parameters
+        ----------
+        phase_name : str
+            The name of the phase to fit the parameters for.
+        """
+        # Extract kwell, cmin, fmin values for the given phase
+        kwell_list = []
+        cmin_list = []
+        fmin_list = []
+        
+        # Iterate through isothermal systems
+        for temperature in self.isothermal_systems.keys():
+            system = self.isothermal_systems[temperature]
+
+            # Check if the target phase name is contained in any of the keys
+            for ph_name in system.phases.keys():
+                if phase_name in ph_name:
+                    phase_system = system.phases[ph_name]
+                    kwell_list.append((temperature, phase_system.kwell))
+                    cmin_list.append((temperature, phase_system.cmin))
+                    fmin_list.append((temperature, phase_system.fmin))
+                    break  # Found the phase, no need to check further keys
+
+        # Convert lists to dictionaries for kwell, cmin, and fmin
+        kwell_dict = dict(kwell_list)
+        cmin_dict = dict(cmin_list)
+        fmin_dict = dict(fmin_list)
+        
+        # Ensure the lengths of all dicts are sufficient
+        if len(kwell_dict) < 2 or len(cmin_dict) < 2 or len(fmin_dict) < 2:
+            print("Error: Not enough data points to fit one or more parameters.")
+            return
+        
+        # Calculate A, B, D
+        A_dict = {T: k / 2.0 for T, k in kwell_dict.items()}
+        B_dict = {T: -kwell_dict[T] * cmin_dict[T] for T in kwell_dict.keys()}
+        D_dict = {T: 0.5 * kwell_dict[T] * cmin_dict[T] * cmin_dict[T] + fmin_dict[T] for T in kwell_dict.keys()}
+
+        # Fit and plot A, B, D
+        self.fit_and_plot(A_dict, phase_name, 'A', 'blue')
+        self.fit_and_plot(B_dict, phase_name, 'B', 'green')
+        self.fit_and_plot(D_dict, phase_name, 'D', 'red')
+
+    def fit_and_plot(self, data_dict, phase_name, label, color):
+        """
+        Fit the linear model to the temperature-dependent parameters and plot the results.
+
+        Parameters
+        ----------
+        data_dict : dict
+            Dictionary mapping temperatures to parameter values.
+        phase_name : str
+            The name of the phase to fit the parameters for.
+        label : str
+            Label of the parameter (A, B, D).
+        color : str
+            Color of the plot.
+        """
+        temperature_array = np.array(list(data_dict.keys()))
+        values_array = np.array(list(data_dict.values()))
+
+        # Check if there are enough data points for fitting
+        if len(temperature_array) < 2:
+            print(f"Error: Not enough data points to fit {label}")
+            return
+
+        print(f"Number of data points for {label}: {len(temperature_array)}")
+        print(f"Temperature array: {temperature_array}")
+        print(f"Values array: {values_array}")
+
+        # Fit the linear model
+        popt, pcov = curve_fit(linear_model, temperature_array, values_array)
+        a0, a1 = popt
+
+        print(f"Fitted parameters for {label}:")
+        print(f"{label}_0: {a0}")
+        print(f"{label}_1: {a1}")
+
+        # Save the fitted parameters
+        if phase_name not in self.fitted_parameters:
+            self.fitted_parameters[phase_name] = {}
+        self.fitted_parameters[phase_name][f"{label}_0"] = a0
+        self.fitted_parameters[phase_name][f"{label}_1"] = a1
+
+        # Plot the data and the fitted line
+        plt.figure()
+        plt.scatter(temperature_array, values_array, label=f'{label} Data', color=color)
+        plt.plot(temperature_array, linear_model(temperature_array, *popt), color=color, label=f'Fitted line for {label}')
+        plt.xlabel('Temperature')
+        plt.ylabel(label)
+        plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+        plt.title(f'Linear Fitting for {label}')
+        plt.show()
+
