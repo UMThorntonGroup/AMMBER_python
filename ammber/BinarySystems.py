@@ -39,7 +39,7 @@ class BinaryIsothermalDiscretePhase:
         newx = xpoints[np.logical_and(xpoints >= self.xdata[0], xpoints <= self.xdata[-1])]
         if len(newx)>=3:
             spl = CubicSpline(self.xdata, self.Gdata)
-            return BinaryIsothermalDiscretePhase(newx, spl(newx))
+            return BinaryIsothermalDiscretePhase(self.name, newx, spl(newx))
         # Assume a line compound, don't resample
         return self
 
@@ -185,7 +185,7 @@ class BinaryIsothermal2ndOrderPhase:
         """
         if xdata is None:
             xdata = np.linspace(*xrange, npts)
-        return BinaryIsothermalDiscretePhase(xdata, self.free_energy(xdata))
+        return BinaryIsothermalDiscretePhase(self.name, xdata, self.free_energy(xdata))
 
 
 class BinaryIsothermalDiscreteSystem:
@@ -230,7 +230,7 @@ class BinaryIsothermalDiscreteSystem:
             phase_list = set(cal.Phase.data[0][0][0])
         for phase_name in phase_list:
             result = calculate(db, elements, phase_name, P=101325, T=temperature, output='GM', pdens=1001)
-            self.phases[phase_name] = BinaryIsothermalDiscretePhase(
+            self.phases[phase_name] = BinaryIsothermalDiscretePhase(phase_name,
                 result.X.sel(component=component).data[0][0][0],
                 result.GM.data[0][0][0])
 
@@ -247,7 +247,7 @@ class BinaryIsothermalDiscreteSystem:
         Gdata : list, array
             Gibbs free energies corresponding to compositions
         """
-        self.phases[name] = BinaryIsothermalDiscretePhase(xdata, Gdata)
+        self.phases[name] = BinaryIsothermalDiscretePhase(name, xdata, Gdata)
 
     def get_lc_hull(self, recalculate=False):#todo
         """
@@ -295,7 +295,7 @@ class BinaryIsothermalDiscreteSystem:
             mask = np.logical_and(np.isin(self.phases[phase].xdata, lc_hull[:, 0]),
                                   np.isin(self.phases[phase].Gdata, lc_hull[:, 1]))
             if np.count_nonzero(mask) > 0:
-                equilibrium_system.phases[phase] = BinaryIsothermalDiscretePhase(
+                equilibrium_system.phases[phase] = BinaryIsothermalDiscretePhase(phase,
                     self.phases[phase].xdata[mask],
                     self.phases[phase].Gdata[mask])
         # break apart phases that phase separate
@@ -320,12 +320,12 @@ class BinaryIsothermalDiscreteSystem:
                     #print(start,end)
                     if end - start >= 1:
                         # phase is represented by multiple points
-                        equilibrium_system.phases[phase +'_'+ str(i)] = BinaryIsothermalDiscretePhase(
+                        equilibrium_system.phases[phase +'_'+ str(i)] = BinaryIsothermalDiscretePhase(phase +'_'+ str(i),
                             phase_temp.xdata[start:end], phase_temp.Gdata[start:end])
                     elif(start == end):
                         # phase is represented by single point
                         print("phase "+phase+'_'+str(i)+" is represented by a single point, a finer discretization may be needed")
-                        equilibrium_system.phases[phase +'_'+ str(i)] = BinaryIsothermalDiscretePhase(
+                        equilibrium_system.phases[phase +'_'+ str(i)] = BinaryIsothermalDiscretePhase(phase +'_'+ str(i),
                             phase_temp.xdata[start], phase_temp.Gdata[start])
         return equilibrium_system
 
@@ -431,7 +431,7 @@ class BinaryIsothermal2ndOrderSystem:
         self.component = discrete_system.component
         self.solution_component = discrete_system.solution_component
         for phase_name in discrete_system.phases.keys():
-            self.phases[phase_name] = BinaryIsothermal2ndOrderPhase()
+            self.phases[phase_name] = BinaryIsothermal2ndOrderPhase(phase_name)
             self.phases[phase_name].fit_phase(discrete_system.phases[phase_name].xdata,
                 discrete_system.phases[phase_name].Gdata, kwellmax=kwellmax)
 
