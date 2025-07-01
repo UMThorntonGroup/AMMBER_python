@@ -413,6 +413,8 @@ class BinaryIsothermal2ndOrderSystem:
         phases : dict {string phase_name : BinaryIsothermal2ndOrderPhase phase}
             (optional) composition to be sampled
         """
+        self.component = component
+        self.solution_component = solution_component
         self.phases = {}
         if phases is not None:
             self.phases = phases

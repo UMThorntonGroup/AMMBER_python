@@ -31,7 +31,7 @@ def add_to_dict(binaryIsothermalSys, dict, add_templates=False, c0={}, Vm=None, 
             dict["phases"][phase_name][comp] = {}
         dict["phases"][phase_name][comp]["k_well"] = phase.kwell
         dict["phases"][phase_name][comp]["c_min"] = phase.cmin
-        dict["phases"][phase_name][comp]["f_min"] = phase.fmin
+        dict["phases"][phase_name]["f_min"] = phase.fmin
 
         if add_templates:
             c0_phase_keys = list(c0.keys())
@@ -47,4 +47,5 @@ def add_to_dict(binaryIsothermalSys, dict, add_templates=False, c0={}, Vm=None, 
             dict["Vm"] = Vm if Vm is not None else -1.0
         if "order_parameters" not in dict:
             dict["order_parameters"] = list(binaryIsothermalSys.phases.keys())
-        
+        if "dimensions" not in dict:
+            dict["dimensions"] = { "length_scale": 0.0, "time_scale": 0.0, "energy_density_scale": 0.0 }
