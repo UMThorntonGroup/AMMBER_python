@@ -62,6 +62,9 @@ pip install numpy scipy pycalphad
 # License:
 MIT License. Please see [LICENSE](LICENSE.md) for details.
 
+# Acknowledgement 
+This project is made possible by funding from the National Science Foundation (NSF) Award No. OAC-2209423
+
 # Links
 [AMMBER_python Repository](https://github.com/UMThorntonGroup/AMMBER_python) <br>
 [AMMBER-PRISMS-PF Repository](https://github.com/UMThorntonGroup/AMMBER-PRISMS-PF) <br>
