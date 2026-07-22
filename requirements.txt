@@ -35,7 +35,7 @@ packaging==26.0
     #   xarray
 pandas==3.0.0
     # via xarray
-pillow==12.1.1
+pillow==12.3.0
     # via matplotlib
 pint==0.25.2
     # via pycalphad
