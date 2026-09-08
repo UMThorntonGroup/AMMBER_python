@@ -23,6 +23,38 @@ class BinaryIsothermalDiscretePhase:
         self.xdata, ordering = np.unique(xdata, return_index=True)
         self.Gdata = Gdata[ordering]
 
+    def remove_potential(self, potential, xref=0, Gref=0):
+        """
+        Removes a potential from the free energy of this phase at a given composition.
+        G = G - (x - xref) * potential - Gref
+
+        Parameters
+        ----------
+        potential : float
+            potential to be removed from the free energy
+        xref : float
+            composition corresponding to Gref
+        Gref : float
+            an energy that will be mapped to zero at composition xref, after removing the potential
+        """
+        self.Gdata = self.Gdata - (self.xdata - xref) * potential - Gref
+
+    def add_potential(self, potential, xref=0, Gref=0):
+        """
+        Adds a potential to the free energy of this phase at a given composition.
+        G = G + (x - xref) * potential + Gref
+
+        Parameters
+        ----------
+        potential : float
+            potential to be added to the free energy
+        xref : float
+            composition corresponding to Gref
+        Gref : float
+            an energy that will be mapped to zero at composition xref, after adding the potential
+        """
+        self.Gdata = self.Gdata + (self.xdata - xref) * potential + Gref
+
     def resample(self, xpoints):
         """
         Returns a new BinaryIsothermalDiscretePhase object by interpolating between points onto xpoints. (cubic spline)
@@ -118,6 +150,38 @@ class BinaryIsothermal2ndOrderPhase:
             self.name = discrete.name
             self.fit_phase(discrete.xdata, discrete.Gdata, kwellmax=kwellmax)
 
+    def remove_potential(self, potential, xref=0, Gref=0):
+        """
+        Removes a potential from the free energy of this phase at a given composition.
+        G = G - (x - xref) * potential - Gref
+
+        Parameters
+        ----------
+        potential : float
+            potential to be removed from the free energy
+        xref : float
+            composition corresponding to Gref
+        Gref : float
+            an energy that will be mapped to zero at composition xref, after removing the potential
+        """
+        self.Gdata = self.Gdata - (self.xdata - xref) * potential - Gref
+
+    def add_potential(self, potential, xref=0, Gref=0):
+        """
+        Adds a potential to the free energy of this phase at a given composition.
+        G = G + (x - xref) * potential + Gref
+
+        Parameters
+        ----------
+        potential : float
+            potential to be added to the free energy
+        xref : float
+            composition corresponding to Gref
+        Gref : float
+            an energy that will be mapped to zero at composition xref, after adding the potential
+        """
+        self.Gdata = self.Gdata + (self.xdata - xref) * potential + Gref
+
     def fit_phase(self, xdata, Gdata, kwellmax=1e9):
         """
         Fits this phase object to a set of points in composition-energy space.
@@ -142,7 +206,6 @@ class BinaryIsothermal2ndOrderPhase:
             self.fmin = Gdata[0]
             self.kwell = kwellmax
             self.cmin = xdata[0]
-            #print(Gdata[0], kwellmax, xdata[0])
         else:
             print("too few points to fit functional form")
 
@@ -399,7 +462,7 @@ class BinaryIsothermalDiscreteSystem:
 
 
 class BinaryIsothermal2ndOrderSystem:
-    "Class representing a seet of phases at one temperature described by a second order polynomial (parabola)"
+    "Class representing a set of phases at one temperature described by a second order polynomial (parabola)"
     def __init__(self, component="", solution_component="", phases=None):
         """
         Constructor.
@@ -478,6 +541,85 @@ class BinaryIsothermal2ndOrderSystem:
                 xdata=xdata, xrange=xrange, npts=npts)
         return discrete_system
 
+
+class Binary2ndOrderPhase:
+    "Class representing a single phase at one temperature described by a 2nd order polynomial (parabola)."
+    def __init__(self, name, Tref, fmin=0.0, dfmin=0.0, kwell=1.0, dkwell=0.0, cmin=0.5, dcmin=0.0, discrete=None, kwellmax=1e9):#todo
+        """
+        Constructor.
+        
+        Parameters
+        ----------
+        name : string
+            name of phase to be added
+        Tref : float
+            reference temperature
+        cmin : float
+            composition of the parabolic free energy minimum at reference temperature
+        dmin : float
+            derivative of the composition of the parabolic free energy minimum with respect to temperature
+        fmin : float
+            corresponding free energy value at cmin
+        dfmin : float
+            derivative of the corresponding free energy value at cmin with respect to temperature
+        kwell : float
+            the parabolic curvature
+        dkwell : float
+            derivative of the parabolic curvature with respect to temperature
+        kwellmax : float
+            kwell to be used when fitting line compounds
+
+        Returns
+        -------
+        Binary2ndOrderPhase object
+        """
+        if discrete is None:
+            self.name = name
+            self.Tref = Tref
+            self.fmin = fmin
+            self.dfmin = dfmin
+            self.kwell = kwell
+            self.dkwell = dkwell
+            self.cmin = cmin
+            self.dcmin = dcmin
+        else:
+            self.name = discrete.name
+            self.fit_phase(discrete.xdata, discrete.Gdata, kwellmax=kwellmax)
+
+    def from_isothermal(self, isothermal_samples):
+        """
+        Constructs a Binary2ndOrderPhase from a set of BinaryIsothermal2ndOrderPhase objects at different temperatures.
+        
+        Parameters
+        ----------
+        isothermal_samples : list (BinaryIsothermal2ndOrderPhase)
+            isothermal samples to be fit
+        """
+        Tdata = np.array([sample.Tref for sample in isothermal_samples])
+        fmin_data = np.array([sample.fmin for sample in isothermal_samples])
+        dfmin_data = np.array([sample.dfmin for sample in isothermal_samples])
+        kwell_data = np.array([sample.kwell for sample in isothermal_samples])
+        dkwell_data = np.array([sample.dkwell for sample in isothermal_samples])
+        cmin_data = np.array([sample.cmin for sample in isothermal_samples])
+        dcmin_data = np.array([sample.dcmin for sample in isothermal_samples])
+        self.Tref = Tdata[0]
+        self.fmin, self.dfmin = np.polyfit(Tdata, fmin_data, 1)
+        self.kwell, self.dkwell = np.polyfit(Tdata, kwell_data, 1)
+        self.cmin, self.dcmin = np.polyfit(Tdata, cmin_data, 1)
+
+    def change_Tref(self, Tref):
+        """
+        Sets the reference temperature for this phase and updates the corresponding free energy values.
+        
+        Parameters
+        ----------
+        Tref : float
+            reference temperature
+        """
+        self.fmin = self.fmin + self.dfmin * (Tref - self.Tref)
+        self.kwell = self.kwell + self.dkwell * (Tref - self.Tref)
+        self.cmin = self.cmin + self.dcmin * (Tref - self.Tref)
+        self.Tref = Tref
 
 def get_lower_convex_hull(inputpoints):
     """
