@@ -164,7 +164,12 @@ class BinaryIsothermal2ndOrderPhase:
         Gref : float
             an energy that will be mapped to zero at composition xref, after removing the potential
         """
-        self.Gdata = self.Gdata - (self.xdata - xref) * potential - Gref
+        fmin = self.fmin
+        cmin = self.cmin
+        self.fmin = fmin - Gref + 0.5 * self.kwell * cmin * cmin + xref * potential
+        self.cmin = cmin + potential / self.kwell
+        
+        
 
     def add_potential(self, potential, xref=0, Gref=0):
         """
@@ -180,7 +185,10 @@ class BinaryIsothermal2ndOrderPhase:
         Gref : float
             an energy that will be mapped to zero at composition xref, after adding the potential
         """
-        self.Gdata = self.Gdata + (self.xdata - xref) * potential + Gref
+        fmin = self.fmin
+        cmin = self.cmin
+        self.fmin = fmin + Gref + 0.5 * self.kwell * cmin * cmin - xref * potential
+        self.cmin = cmin - potential / self.kwell
 
     def fit_phase(self, xdata, Gdata, kwellmax=1e9):
         """
@@ -597,11 +605,8 @@ class Binary2ndOrderPhase:
         """
         Tdata = np.array([sample.Tref for sample in isothermal_samples])
         fmin_data = np.array([sample.fmin for sample in isothermal_samples])
-        dfmin_data = np.array([sample.dfmin for sample in isothermal_samples])
         kwell_data = np.array([sample.kwell for sample in isothermal_samples])
-        dkwell_data = np.array([sample.dkwell for sample in isothermal_samples])
         cmin_data = np.array([sample.cmin for sample in isothermal_samples])
-        dcmin_data = np.array([sample.dcmin for sample in isothermal_samples])
         self.Tref = Tdata[0]
         self.fmin, self.dfmin = np.polyfit(Tdata, fmin_data, 1)
         self.kwell, self.dkwell = np.polyfit(Tdata, kwell_data, 1)
