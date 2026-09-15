@@ -1,3 +1,5 @@
+from shutil import copy
+
 from scipy.optimize import curve_fit
 from scipy.spatial import ConvexHull
 from scipy.interpolate import CubicSpline
@@ -625,6 +627,32 @@ class Binary2ndOrderPhase:
         self.kwell = self.kwell + self.dkwell * (Tref - self.Tref)
         self.cmin = self.cmin + self.dcmin * (Tref - self.Tref)
         self.Tref = Tref
+
+class Binary2ndOrderSystem:
+    "Class representing a set of phases at one temperature described by a second order polynomial (parabola)"
+    def __init__(self, component="", solution_component="", phases=None, Tref=None):
+        """
+        Constructor.
+        
+        Parameters
+        ----------
+        component : string
+            name of the x-component
+        solution_component : string
+            name of the (1-x)-component
+        phases : dict {string phase_name : Binary2ndOrderPhase phase}
+            (optional) composition to be sampled
+        Tref : float
+            reference temperature
+        """
+        self.component = component
+        self.solution_component = solution_component
+        self.phases = {}
+        if phases is not None:
+            self.phases = copy.deepcopy(phases)
+        if Tref is not None:
+            for phase in self.phases:
+                self.phases[phase].change_Tref(Tref)
 
 def get_lower_convex_hull(inputpoints):
     """
