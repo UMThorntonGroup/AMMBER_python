@@ -636,6 +636,8 @@ class Binary2ndOrderPhase:
         ----------
         x : float
             composition to be sampled
+        T : float
+            temperature to be sampled
 
         Returns
         -------
@@ -643,6 +645,28 @@ class Binary2ndOrderPhase:
         """
         deltaT = T - self.Tref
         return (self.fmin + deltaT * self.dfmin) + (self.kwell + deltaT * self.dkwell) / 2.0 * (x - (self.cmin + deltaT * self.dcmin))**2
+
+    def discretize(self, xdata=None, xrange=(1e-14, 1.0 - 1e-14), Tdata=None, npts=1001):
+        """
+        Returns a BinaryIsothermalDiscretePhase object by sampling the free energy function on a range of compositions
+        Provide either xdata, or a range and number of points.
+
+        Parameters
+        ----------
+        xdata : list (float)
+            compositions to be sampled
+        xrange : tuple (min, max)
+            range of compositions to be linearly sampled
+        npts : number of points to be sampled from in xrange
+
+        Returns
+        -------
+        BinaryIsothermalDiscretePhase object
+        """
+        if xdata is None:
+            xdata = np.linspace(*xrange, npts)
+        xdata1, Tdata1 = np.meshgrid(xdata, Tdata) 
+        return BinaryIsothermalDiscretePhase(self.name, xdata1, self.free_energy(xdata1, Tdata1))
 
 
 class Binary2ndOrderSystem:
