@@ -628,6 +628,23 @@ class Binary2ndOrderPhase:
         self.cmin = self.cmin + self.dcmin * (Tref - self.Tref)
         self.Tref = Tref
 
+    def free_energy(self, x, T):
+        """
+        Evaluates the free energy at x using the parabolic parameters.
+        
+        Parameters
+        ----------
+        x : float
+            composition to be sampled
+
+        Returns
+        -------
+        (float) free energy at composition x
+        """
+        deltaT = T - self.Tref
+        return (self.fmin + deltaT * self.dfmin) + (self.kwell + deltaT * self.dkwell) / 2.0 * (x - (self.cmin + deltaT * self.dcmin))**2
+
+
 class Binary2ndOrderSystem:
     "Class representing a set of phases at one temperature described by a second order polynomial (parabola)"
     def __init__(self, component="", solution_component="", phases=None, Tref=None):
