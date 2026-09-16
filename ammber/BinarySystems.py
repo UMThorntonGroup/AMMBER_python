@@ -8,7 +8,7 @@ from pycalphad import calculate
 from ammber.utils import add_to_dict
 class BinaryIsothermalDiscretePhase:
     "Class representing a single phase at one temperature described by a set of points in composition-Gibbs free energy space"
-    def __init__(self, name, xdata, Gdata):
+    def __init__(self, name, xdata, Gdata, T):
         """
         Constructor. Initializes the phase object from points in composition-Gibbs free energy space.
 
@@ -20,10 +20,13 @@ class BinaryIsothermalDiscretePhase:
             compositions
         Gdata : list, array
             Gibbs free energies corresponding to compositions
+        T : float
+            temperature of this isotherm
         """
         self.name = name
         self.xdata, ordering = np.unique(xdata, return_index=True)
         self.Gdata = Gdata[ordering]
+        self.T = T
 
     def remove_potential(self, potential, xref=0, Gref=0):
         """
@@ -122,7 +125,7 @@ class BinaryIsothermalDiscretePhase:
 
 class BinaryIsothermal2ndOrderPhase:
     "Class representing a single phase at one temperature described by a 2nd order polynomial (parabola)."
-    def __init__(self, name, fmin=0.0, kwell=1.0, cmin=0.5, discrete=None, kwellmax=1e9):#todo
+    def __init__(self, name, fmin=0.0, kwell=1.0, cmin=0.5, T=0.0, discrete=None, kwellmax=1e9):#todo
         """
         Constructor.
         
@@ -138,6 +141,8 @@ class BinaryIsothermal2ndOrderPhase:
             the parabolic curvature
         kwellmax : float
             kwell to be used when fitting line compounds
+        T : float
+            temperature of this isotherm
 
         Returns
         -------
@@ -148,8 +153,10 @@ class BinaryIsothermal2ndOrderPhase:
             self.fmin = fmin
             self.kwell = kwell
             self.cmin = cmin
+            self.T = T
         else:
             self.name = discrete.name
+            self.T = discrete.T
             self.fit_phase(discrete.xdata, discrete.Gdata, kwellmax=kwellmax)
 
     def remove_potential(self, potential, xref=0, Gref=0):
@@ -258,7 +265,7 @@ class BinaryIsothermal2ndOrderPhase:
         """
         if xdata is None:
             xdata = np.linspace(*xrange, npts)
-        return BinaryIsothermalDiscretePhase(self.name, xdata, self.free_energy(xdata))
+        return BinaryIsothermalDiscretePhase(self.name, xdata, self.free_energy(xdata), T=self.T)
 
 
 class BinaryIsothermalDiscreteSystem:
@@ -305,9 +312,9 @@ class BinaryIsothermalDiscreteSystem:
             result = calculate(db, elements, phase_name, P=101325, T=temperature, output='GM', pdens=1001)
             self.phases[phase_name] = BinaryIsothermalDiscretePhase(phase_name,
                 result.X.sel(component=component).data[0][0][0],
-                result.GM.data[0][0][0])
+                result.GM.data[0][0][0], T=temperature)
 
-    def add_phase(self, name, xdata, Gdata):
+    def add_phase(self, name, xdata, Gdata, T=0.0):
         """
         Constructs a new BinaryIsothermalDiscretePhase object from points in composition-Gibbs free energy space.
 
@@ -320,7 +327,7 @@ class BinaryIsothermalDiscreteSystem:
         Gdata : list, array
             Gibbs free energies corresponding to compositions
         """
-        self.phases[name] = BinaryIsothermalDiscretePhase(name, xdata, Gdata)
+        self.phases[name] = BinaryIsothermalDiscretePhase(name, xdata, Gdata, T)
 
     def get_lc_hull(self, recalculate=False):#todo
         """
@@ -370,7 +377,8 @@ class BinaryIsothermalDiscreteSystem:
             if np.count_nonzero(mask) > 0:
                 equilibrium_system.phases[phase] = BinaryIsothermalDiscretePhase(phase,
                     self.phases[phase].xdata[mask],
-                    self.phases[phase].Gdata[mask])
+                    self.phases[phase].Gdata[mask],
+                    self.phases[phase].T)
         # break apart phases that phase separate
         for phase in self.phases:
             # find indices where TDB phase free energy is discontinuous wrt x, gap between points exceeds deltax_thresh
@@ -394,12 +402,12 @@ class BinaryIsothermalDiscreteSystem:
                     if end - start >= 1:
                         # phase is represented by multiple points
                         equilibrium_system.phases[phase +'_'+ str(i)] = BinaryIsothermalDiscretePhase(phase +'_'+ str(i),
-                            phase_temp.xdata[start:end], phase_temp.Gdata[start:end])
+                            phase_temp.xdata[start:end], phase_temp.Gdata[start:end], phase_temp.T)
                     elif(start == end):
                         # phase is represented by single point
                         print("phase "+phase+'_'+str(i)+" is represented by a single point, a finer discretization may be needed")
                         equilibrium_system.phases[phase +'_'+ str(i)] = BinaryIsothermalDiscretePhase(phase +'_'+ str(i),
-                            phase_temp.xdata[start], phase_temp.Gdata[start])
+                            phase_temp.xdata[start], phase_temp.Gdata[start], phase_temp.T)
         return equilibrium_system
 
     def get_equilibrium(self, x):#todo
@@ -506,7 +514,7 @@ class BinaryIsothermal2ndOrderSystem:
         self.component = discrete_system.component
         self.solution_component = discrete_system.solution_component
         for phase_name in discrete_system.phases.keys():
-            self.phases[phase_name] = BinaryIsothermal2ndOrderPhase(phase_name)
+            self.phases[phase_name] = BinaryIsothermal2ndOrderPhase(phase_name, T=self.T)
             self.phases[phase_name].fit_phase(discrete_system.phases[phase_name].xdata,
                 discrete_system.phases[phase_name].Gdata, kwellmax=kwellmax)
 
@@ -605,7 +613,7 @@ class Binary2ndOrderPhase:
         isothermal_samples : list (BinaryIsothermal2ndOrderPhase)
             isothermal samples to be fit
         """
-        Tdata = np.array([sample.Tref for sample in isothermal_samples])
+        Tdata = np.array([sample.T for sample in isothermal_samples])
         fmin_data = np.array([sample.fmin for sample in isothermal_samples])
         kwell_data = np.array([sample.kwell for sample in isothermal_samples])
         cmin_data = np.array([sample.cmin for sample in isothermal_samples])
@@ -666,11 +674,11 @@ class Binary2ndOrderPhase:
         if xdata is None:
             xdata = np.linspace(*xrange, npts)
         xdata1, Tdata1 = np.meshgrid(xdata, Tdata) 
-        return BinaryIsothermalDiscretePhase(self.name, xdata1, self.free_energy(xdata1, Tdata1))
+        return (xdata1, Tdata1, self.free_energy(xdata1, Tdata1))
 
 
 class Binary2ndOrderSystem:
-    "Class representing a set of phases at one temperature described by a second order polynomial (parabola)"
+    "Class representing a set of phases described by a second order polynomial (parabola)"
     def __init__(self, component="", solution_component="", phases=None, Tref=None):
         """
         Constructor.
