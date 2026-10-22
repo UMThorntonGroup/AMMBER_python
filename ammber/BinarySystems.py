@@ -25,7 +25,7 @@ class BinaryIsothermalDiscretePhase:
         """
         self.name = name
         self.xdata, ordering = np.unique(xdata, return_index=True)
-        self.Gdata = Gdata[ordering]
+        self.Gdata = np.array(Gdata)[ordering]
         self.T = T
 
     def remove_potential(self, potential, xref=0, Gref=0):
@@ -76,7 +76,7 @@ class BinaryIsothermalDiscretePhase:
         newx = xpoints[np.logical_and(xpoints >= self.xdata[0], xpoints <= self.xdata[-1])]
         if len(newx)>=3:
             spl = CubicSpline(self.xdata, self.Gdata)
-            return BinaryIsothermalDiscretePhase(self.name, newx, spl(newx))
+            return BinaryIsothermalDiscretePhase(self.name, newx, spl(newx), self.T)
         # Assume a line compound, don't resample
         return self
 
@@ -478,6 +478,40 @@ class BinaryIsothermalDiscreteSystem:
                     equilibrium[phase], xdist=xdist, npts=npts)
         return new_system
 
+    def add_potential(self, potential, xref=0, Gref=0):
+        """
+        Adds a potential to the free energy of all phases at a given composition.
+        G = G + (x - xref) * potential + Gref
+
+        Parameters
+        ----------
+        potential : float
+            potential to be added to the free energy
+        xref : float
+            composition corresponding to Gref
+        Gref : float
+            an energy that will be mapped to zero at composition xref, after adding the potential
+        """
+        for phase in self.phases:
+            self.phases[phase].add_potential(potential, xref=xref, Gref=Gref)
+
+    def remove_potential(self, potential, xref=0, Gref=0):
+        """
+        Removes a potential from the free energy of all phases at a given composition.
+        G = G - (x - xref) * potential - Gref
+
+        Parameters
+        ----------
+        potential : float
+            potential to be removed from the free energy
+        xref : float
+            composition corresponding to Gref
+        Gref : float
+            an energy that will be mapped to zero at composition xref, after removing the potential
+        """
+        for phase in self.phases:
+            self.phases[phase].remove_potential(potential, xref=xref, Gref=Gref)
+
 
 class BinaryIsothermal2ndOrderSystem:
     "Class representing a set of phases at one temperature described by a second order polynomial (parabola)"
@@ -558,6 +592,40 @@ class BinaryIsothermal2ndOrderSystem:
             discrete_system.phases[phase_name] = self.phases[phase_name].discretize(
                 xdata=xdata, xrange=xrange, npts=npts)
         return discrete_system
+
+    def add_potential(self, potential, xref=0, Gref=0):
+        """
+        Adds a potential to the free energy of all phases at a given composition.
+        G = G + (x - xref) * potential + Gref
+
+        Parameters
+        ----------
+        potential : float
+            potential to be added to the free energy
+        xref : float
+            composition corresponding to Gref
+        Gref : float
+            an energy that will be mapped to zero at composition xref, after adding the potential
+        """
+        for phase in self.phases:
+            self.phases[phase].add_potential(potential, xref=xref, Gref=Gref)
+
+    def remove_potential(self, potential, xref=0, Gref=0):
+        """
+        Removes a potential from the free energy of all phases at a given composition.
+        G = G - (x - xref) * potential - Gref
+
+        Parameters
+        ----------
+        potential : float
+            potential to be removed from the free energy
+        xref : float
+            composition corresponding to Gref
+        Gref : float
+            an energy that will be mapped to zero at composition xref, after removing the potential
+        """
+        for phase in self.phases:
+            self.phases[phase].remove_potential(potential, xref=xref, Gref=Gref)
 
 
 class Binary2ndOrderPhase:
