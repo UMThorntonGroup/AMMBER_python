@@ -8,7 +8,7 @@ from pycalphad import calculate
 from ammber.utils import add_to_dict
 class BinaryIsothermalDiscretePhase:
     "Class representing a single phase at one temperature described by a set of points in composition-Gibbs free energy space"
-    def __init__(self, name, xdata, Gdata, T):
+    def __init__(self, name, xdata, Gdata, T=0.0):
         """
         Constructor. Initializes the phase object from points in composition-Gibbs free energy space.
 
@@ -159,27 +159,6 @@ class BinaryIsothermal2ndOrderPhase:
             self.T = discrete.T
             self.fit_phase(discrete.xdata, discrete.Gdata, kwellmax=kwellmax)
 
-    def remove_potential(self, potential, xref=0, Gref=0):
-        """
-        Removes a potential from the free energy of this phase at a given composition.
-        G = G - (x - xref) * potential - Gref
-
-        Parameters
-        ----------
-        potential : float
-            potential to be removed from the free energy
-        xref : float
-            composition corresponding to Gref
-        Gref : float
-            an energy that will be mapped to zero at composition xref, after removing the potential
-        """
-        fmin = self.fmin
-        cmin = self.cmin
-        self.fmin = fmin - Gref + 0.5 * self.kwell * cmin * cmin + xref * potential
-        self.cmin = cmin + potential / self.kwell
-        
-        
-
     def add_potential(self, potential, xref=0, Gref=0):
         """
         Adds a potential to the free energy of this phase at a given composition.
@@ -194,10 +173,29 @@ class BinaryIsothermal2ndOrderPhase:
         Gref : float
             an energy that will be mapped to zero at composition xref, after adding the potential
         """
-        fmin = self.fmin
-        cmin = self.cmin
-        self.fmin = fmin + Gref + 0.5 * self.kwell * cmin * cmin - xref * potential
-        self.cmin = cmin - potential / self.kwell
+        A = self.kwell / 2.0
+        B = potential - self.kwell * self.cmin
+        C = self.fmin + Gref + 0.5 * self.kwell * self.cmin**2 - xref * potential 
+        self.fmin = C - (B**2)/(4*A)
+        self.cmin = -B/(2*A)
+
+    def remove_potential(self, potential, xref=0, Gref=0):
+        """
+        Removes a potential from the free energy of this phase at a given composition.
+        G = G - (x - xref) * potential - Gref
+
+        Parameters
+        ----------
+        potential : float
+            potential to be removed from the free energy
+        xref : float
+            composition corresponding to Gref
+        Gref : float
+            an energy that will be mapped to zero at composition xref, after removing the potential
+        """
+        self.add_potential(-potential, xref=xref, Gref=-Gref)
+        
+
 
     def fit_phase(self, xdata, Gdata, kwellmax=1e9):
         """
@@ -515,7 +513,7 @@ class BinaryIsothermalDiscreteSystem:
 
 class BinaryIsothermal2ndOrderSystem:
     "Class representing a set of phases at one temperature described by a second order polynomial (parabola)"
-    def __init__(self, component="", solution_component="", phases=None):
+    def __init__(self, component="", solution_component="", phases=None, T=0.0):
         """
         Constructor.
         
@@ -531,6 +529,7 @@ class BinaryIsothermal2ndOrderSystem:
         self.component = component
         self.solution_component = solution_component
         self.phases = {}
+        self.T = T
         if phases is not None:
             self.phases = phases
 
