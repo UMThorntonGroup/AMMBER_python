@@ -340,6 +340,122 @@ class IsothermalDiscretePhase:
         return vals
 
 
+class IsothermalQuadraticPhase:
+    """
+    A single phase at one temperature described by a multicomponent quadratic
+    Gibbs free energy.
+
+    The free energy is
+    ``G = 0.5 * (c - c_ref).T @ A @ (c - c_ref) + B.T @ (c - c_ref) + C``.
+    """
+
+    def __init__(self, name, A, B, C, c_ref, T=0.0):
+        """
+        Initialize a quadratic phase.
+
+        Parameters
+        ----------
+        name : str
+            Name of the phase.
+        A : array_like, shape (n_indep, n_indep)
+            Symmetric quadratic coefficient matrix.
+        B : array_like, shape (n_indep,)
+            Linear coefficient vector.
+        C : float
+            Free energy at ``c_ref``.
+        c_ref : array_like, shape (n_indep,)
+            Reference composition in independent-component coordinates.
+        T : float
+            Temperature of this isotherm.
+        """
+        A = np.asarray(A, dtype=float)
+        if A.ndim != 2 or A.shape[0] == 0 or A.shape[0] != A.shape[1]:
+            raise ValueError("A must be a non-empty square matrix")
+        if not np.array_equal(A, A.T):
+            raise ValueError("A must be symmetric")
+
+        self.n_indep = A.shape[0]
+        self.A = A.copy()
+        self.B = np.asarray(B, dtype=float).reshape(-1).copy()
+        self.c_ref = np.asarray(c_ref, dtype=float).reshape(-1).copy()
+        if self.B.size != self.n_indep:
+            raise ValueError(f"B must contain {self.n_indep} coefficients")
+        if self.c_ref.size != self.n_indep:
+            raise ValueError(f"c_ref must contain {self.n_indep} compositions")
+
+        self.name = name
+        self.C = float(C)
+        self.T = T
+
+    def free_energy(self, c):
+        """
+        Evaluate the free energy at one or more compositions.
+
+        For one independent component, a one-dimensional input is interpreted
+        as multiple compositions. For multiple independent components, a
+        one-dimensional input is interpreted as one composition.
+        """
+        c = np.asarray(c, dtype=float)
+        single = self.n_indep > 1 and c.ndim == 1
+        if self.n_indep == 1:
+            c_eval = np.atleast_1d(c).reshape(-1, 1)
+            single = c.ndim == 0
+        elif c.ndim == 1:
+            c_eval = c.reshape(1, -1)
+        else:
+            c_eval = c
+        if c_eval.ndim != 2 or c_eval.shape[1] != self.n_indep:
+            raise ValueError(
+                f"compositions must have shape (npts, {self.n_indep})"
+            )
+
+        delta = c_eval - self.c_ref
+        values = (
+            0.5 * np.einsum("ni,ij,nj->n", delta, self.A, delta)
+            + delta @ self.B
+            + self.C
+        )
+        return float(values[0]) if single else values
+
+    def add_potential(self, potential, xref=0, Gref=0):
+        """
+        Add ``(c - xref) @ potential + Gref`` to the free energy.
+        """
+        potential = np.asarray(potential, dtype=float).reshape(-1)
+        xref = np.asarray(xref, dtype=float).reshape(-1)
+        if potential.size == 1:
+            potential = np.full(self.n_indep, potential[0])
+        if xref.size == 1:
+            xref = np.full(self.n_indep, xref[0])
+        if potential.size != self.n_indep:
+            raise ValueError(f"potential must contain {self.n_indep} values")
+        if xref.size != self.n_indep:
+            raise ValueError(f"xref must contain {self.n_indep} values")
+
+        self.B += potential
+        self.C += (self.c_ref - xref) @ potential + Gref
+
+    def remove_potential(self, potential, xref=0, Gref=0):
+        """
+        Remove ``(c - xref) @ potential + Gref`` from the free energy.
+        """
+        self.add_potential(-np.asarray(potential, dtype=float), xref=xref, Gref=-Gref)
+
+    def discretize(self, xdata):
+        """
+        Sample this phase at the supplied compositions.
+
+        Returns
+        -------
+        IsothermalDiscretePhase
+        """
+        xdata = np.asarray(xdata, dtype=float)
+        if xdata.ndim == 0 and self.n_indep == 1:
+            xdata = xdata.reshape(1, 1)
+        xdata, Gdata = _as_composition_array(xdata, self.free_energy(xdata))
+        return IsothermalDiscretePhase(self.name, xdata, Gdata, self.T)
+
+
 class IsothermalDiscreteSystem:
     """
     A set of phases at one temperature described by points in
@@ -604,3 +720,129 @@ class IsothermalDiscreteSystem:
                 xeq, xdist=xdist, npts=npts
             )
         return new_system
+
+
+class IsothermalQuadraticSystem:
+    """
+    A set of multicomponent quadratic phases at one temperature.
+    """
+
+    def __init__(
+        self, components=None, solution_component="", phases=None, T=0.0
+    ):
+        """
+        Initialize a quadratic system.
+
+        Parameters
+        ----------
+        components : list of str, optional
+            Names of the independent composition components.
+        solution_component : str
+            Name of the solvent / dependent component.
+        phases : dict, optional
+            Mapping from phase names to ``IsothermalQuadraticPhase`` objects.
+        T : float
+            Temperature of this isotherm.
+        """
+        self.components = list(components) if components is not None else []
+        self.solution_component = solution_component
+        self.phases = dict(phases) if phases is not None else {}
+        self.T = T
+        expected_n_indep = len(self.components)
+        for name, phase in self.phases.items():
+            if expected_n_indep == 0:
+                expected_n_indep = phase.n_indep
+            if phase.n_indep != expected_n_indep:
+                raise ValueError(
+                    f"phase {name!r} has {phase.n_indep} independent components; "
+                    f"expected {expected_n_indep}"
+                )
+
+    def add_phase(self, name, A, B, C, c_ref):
+        """
+        Add a quadratic phase to the system.
+        """
+        phase = IsothermalQuadraticPhase(name, A, B, C, c_ref, T=self.T)
+        if self.components:
+            expected_n_indep = len(self.components)
+        elif self.phases:
+            expected_n_indep = next(iter(self.phases.values())).n_indep
+        else:
+            expected_n_indep = phase.n_indep
+        if phase.n_indep != expected_n_indep:
+            raise ValueError(
+                f"phase {name!r} has {phase.n_indep} independent components; "
+                f"expected {expected_n_indep}"
+            )
+        self.phases[name] = phase
+
+    def add_potential(self, potential, xref=0, Gref=0):
+        """
+        Add a linear potential to every phase in the system.
+        """
+        for phase in self.phases.values():
+            phase.add_potential(potential, xref=xref, Gref=Gref)
+
+    def remove_potential(self, potential, xref=0, Gref=0):
+        """
+        Remove a linear potential from every phase in the system.
+        """
+        for phase in self.phases.values():
+            phase.remove_potential(potential, xref=xref, Gref=Gref)
+
+    def to_discrete(self, xdata=None, npts=21):
+        """
+        Sample all phases into an ``IsothermalDiscreteSystem``.
+
+        Parameters
+        ----------
+        xdata : array_like, optional
+            Compositions to sample, with shape ``(npts, n_indep)``. If omitted,
+            a regular grid over the composition simplex is generated.
+        npts : int
+            Number of grid points along each independent composition axis when
+            ``xdata`` is omitted.
+
+        Returns
+        -------
+        IsothermalDiscreteSystem
+        """
+        if xdata is None:
+            if not self.phases:
+                return IsothermalDiscreteSystem(
+                    components=self.components,
+                    solution_component=self.solution_component,
+                )
+            n_indep = next(iter(self.phases.values())).n_indep
+            if isinstance(npts, bool) or not isinstance(npts, (int, np.integer)):
+                raise ValueError("npts must be a positive integer")
+            if npts < 1:
+                raise ValueError("npts must be a positive integer")
+            axes = [np.linspace(0.0, 1.0, npts) for _ in range(n_indep)]
+            grid = np.meshgrid(*axes, indexing="ij")
+            xdata = np.stack([axis.ravel() for axis in grid], axis=-1)
+            xdata = xdata[np.sum(xdata, axis=1) <= 1.0]
+        else:
+            xdata = np.asarray(xdata, dtype=float)
+            if xdata.ndim == 0 and self.phases:
+                if next(iter(self.phases.values())).n_indep == 1:
+                    xdata = xdata.reshape(1, 1)
+            elif xdata.ndim == 1:
+                if len(self.phases) and next(iter(self.phases.values())).n_indep == 1:
+                    xdata = xdata.reshape(-1, 1)
+                else:
+                    xdata = xdata.reshape(1, -1)
+            if xdata.ndim != 2:
+                raise ValueError("xdata must be 1D or 2D")
+
+        discrete_system = IsothermalDiscreteSystem(
+            components=self.components,
+            solution_component=self.solution_component,
+        )
+        for name, phase in self.phases.items():
+            if xdata.shape[1] != phase.n_indep:
+                raise ValueError(
+                    f"xdata must have {phase.n_indep} independent components"
+                )
+            discrete_system.phases[name] = phase.discretize(xdata)
+        return discrete_system
