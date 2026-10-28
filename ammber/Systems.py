@@ -68,6 +68,12 @@ def _point_in_simplex(x, simplex_vertices, tol=1e-10):
     return False, None
 
 
+def _simplex_distance(x, xref):
+    """Return Euclidean distance including the dependent solvent fraction."""
+    delta = np.asarray(x, dtype=float) - np.asarray(xref, dtype=float)
+    return np.sqrt(np.sum(delta**2, axis=-1) + np.sum(delta, axis=-1) ** 2)
+
+
 def get_lower_convex_hull(inputpoints):
     """
     Returns the set of points that lie on the lower convex hull of inputpoints
@@ -245,6 +251,34 @@ class IsothermalDiscretePhase:
             if np.count_nonzero(valid) >= min_pts:
                 return IsothermalDiscretePhase(self.name, newx[valid], newG[valid], self.T)
         return self
+
+    def resample_near_xpoint(self, x, xdist=0.04, npts=21):
+        """
+        Resample this phase within a solvent-invariant distance of x.
+
+        Parameters
+        ----------
+        x : list, array
+            Composition of the independent components, shape (n_indep,) or
+            (1, n_indep).
+        xdist : float
+            Radius in full mole-fraction space, including the solvent.
+        npts : positive integer
+            Number of grid points along each independent composition axis.
+        """
+        x = np.asarray(x, dtype=float).reshape(-1)
+        if x.size != self.n_indep:
+            raise ValueError(f"x must contain {self.n_indep} independent components")
+        if xdist < 0:
+            raise ValueError("xdist must be non-negative")
+
+        extent = xdist / np.sqrt(2)
+        axes = [np.linspace(value - extent, value + extent, npts) for value in x]
+        grid = np.meshgrid(*axes, indexing="ij")
+        xpoints = np.stack([axis.ravel() for axis in grid], axis=-1)
+        in_simplex = np.all(xpoints >= 0, axis=1) & (xpoints.sum(axis=1) <= 1)
+        in_ball = _simplex_distance(xpoints, x) <= xdist
+        return self.resample(xpoints[in_simplex & in_ball])
 
     def free_energy(self, x):
         """
@@ -539,3 +573,34 @@ class IsothermalDiscreteSystem:
             if phase_name not in equilibrium:
                 equilibrium[phase_name] = (comp, G)
         return equilibrium
+
+    def resample_near_equilibrium(self, x, xdist=0.001, npts=21):
+        """
+        Resample phases near their equilibrium compositions at x.
+
+        Parameters
+        ----------
+        x : list, array
+            Composition of the independent components.
+        xdist : float
+            Radius in full mole-fraction space around each equilibrium
+            composition.
+        npts : positive integer
+            Number of grid points along each independent composition axis.
+        """
+        equilibrium = self.get_equilibrium(x)
+        new_system = IsothermalDiscreteSystem(
+            components=self.components,
+            solution_component=self.solution_component,
+        )
+        for phase, (xeq, _) in equilibrium.items():
+            if phase in self.phases:
+                source_phase = phase
+            elif phase[:-2] in self.phases:
+                source_phase = phase[:-2]
+            else:
+                continue
+            new_system.phases[phase] = self.phases[source_phase].resample_near_xpoint(
+                xeq, xdist=xdist, npts=npts
+            )
+        return new_system
