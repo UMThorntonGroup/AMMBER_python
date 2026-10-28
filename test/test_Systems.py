@@ -56,7 +56,10 @@ def test_isothermal_discrete_system_hull_and_equilibrium():
 
     eq = sys.get_equilibrium([0.25, 0.15])
     assert "FCC" in eq
-    np.testing.assert_allclose(eq["FCC"], [0.25, 0.15])
+    comp, G = eq["FCC"]
+    np.testing.assert_allclose(comp, [0.25, 0.15])
+    assert np.isscalar(G) or np.size(G) == 1
+    assert np.isfinite(G)
 
 
 def test_get_lower_convex_hull_1d_parabola():

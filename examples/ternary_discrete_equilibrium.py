@@ -143,7 +143,7 @@ def plot_example(system, query, output_path=OUTPUT_PATH):
         tri = np.vstack([containing_facet[:, :2], containing_facet[0, :2]])
         ax2d.plot(tri[:, 0], tri[:, 1], color="crimson", lw=2.0, zorder=4)
 
-    for phase_name, comp in equilibrium.items():
+    for phase_name, (comp, _G) in equilibrium.items():
         comp = np.atleast_1d(comp).astype(float)
         if comp.size == 1:
             continue
@@ -217,13 +217,10 @@ def plot_example(system, query, output_path=OUTPUT_PATH):
             depthshade=False,
             label="query on hull",
         )
-    for phase_name, comp in equilibrium.items():
+    for phase_name, (comp, G_eq) in equilibrium.items():
         comp = np.asarray(comp, dtype=float).ravel()
         if comp.size < 2:
             continue
-        # match energy of nearest hull vertex for that phase composition
-        d = np.linalg.norm(hull[:, :2] - comp[:2], axis=1)
-        G_eq = hull[np.argmin(d), -1]
         ax3d.scatter(
             [comp[0]],
             [comp[1]],
@@ -253,8 +250,8 @@ def plot_example(system, query, output_path=OUTPUT_PATH):
     print(f"Saved figure to {output_path}")
     print(f"Query composition (x_B, x_C) = {query.tolist()}")
     print("Equilibrium:")
-    for name, comp in equilibrium.items():
-        print(f"  {name}: {np.asarray(comp).tolist()}")
+    for name, (comp, G) in equilibrium.items():
+        print(f"  {name}: x={np.asarray(comp).tolist()}, G={float(np.asarray(G).ravel()[0]):.4f}")
     if plt.get_backend().lower() != "agg":
         plt.show()
     else:
