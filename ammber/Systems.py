@@ -478,8 +478,8 @@ class IsothermalDiscreteSystem:
 
     def get_equilibrium(self, x):
         """
-        Returns the composition(s) of the phase(s) present at equilibrium at
-        composition x.
+        Returns the composition(s) and free energy of the phase(s) present at
+        equilibrium at composition x.
 
         Parameters
         ----------
@@ -488,8 +488,9 @@ class IsothermalDiscreteSystem:
 
         Returns
         -------
-        dict {string phase_name : array (float) compositions}
-            compositions of the phases present at equilibrium at x
+        dict {string phase_name : (array compositions, float G)}
+            composition and free energy of each phase present at equilibrium at x.
+            For a single-phase region, G is the hull energy at x.
         """
         x = np.asarray(x, dtype=float).ravel()
         self.get_lc_hull()
@@ -503,11 +504,13 @@ class IsothermalDiscreteSystem:
             facets = get_lower_convex_hull_facets(self._all_points())
 
         containing = None
+        lambdas = None
         for facet in facets:
             comps = facet[:, :-1]
-            inside, _ = _point_in_simplex(x, comps)
+            inside, lam = _point_in_simplex(x, comps)
             if inside:
                 containing = facet
+                lambdas = lam
                 break
         if containing is None:
             return {}
@@ -518,18 +521,21 @@ class IsothermalDiscreteSystem:
             for phase_name, phase_obj in equilibrium_system.phases.items():
                 phase_pts = np.hstack((phase_obj.xdata, phase_obj.Gdata[:, None]))
                 if _rows_in(vertex.reshape(1, -1), phase_pts)[0]:
-                    vertex_phase_comp.append((phase_name, vertex[:-1].copy()))
+                    vertex_phase_comp.append(
+                        (phase_name, vertex[:-1].copy(), float(vertex[-1]))
+                    )
                     break
 
         if not vertex_phase_comp:
             return {}
 
-        phase_names = [p for p, _ in vertex_phase_comp]
+        phase_names = [p for p, _, _ in vertex_phase_comp]
         if len(set(phase_names)) == 1:
-            return {phase_names[0]: x.copy()}
+            G_x = float(lambdas @ containing[:, -1])
+            return {phase_names[0]: (x.copy(), G_x)}
 
         equilibrium = {}
-        for phase_name, comp in vertex_phase_comp:
+        for phase_name, comp, G in vertex_phase_comp:
             if phase_name not in equilibrium:
-                equilibrium[phase_name] = comp
+                equilibrium[phase_name] = (comp, G)
         return equilibrium

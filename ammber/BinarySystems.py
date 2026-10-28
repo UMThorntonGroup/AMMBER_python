@@ -419,8 +419,9 @@ class BinaryIsothermalDiscreteSystem:
 
         Returns
         -------
-        dict {string phase_name : array (float) compositions }
-            compositions of the phases present at equilibrium at x
+        dict {string phase_name : (array compositions, float or array G)}
+            composition and free energy of each phase present at equilibrium at x.
+            For a single-phase region, G is the hull energy at x.
         """
         lc_hull = self.get_lc_hull()
         if self._is_equilibrium_system:
@@ -430,6 +431,8 @@ class BinaryIsothermalDiscreteSystem:
         xind = np.searchsorted(lc_hull[:, 0], x)
         rightpt = lc_hull[xind, :]
         leftpt = lc_hull[xind - 1, :]
+        t = 0.0 if rightpt[0] == leftpt[0] else (x - leftpt[0]) / (rightpt[0] - leftpt[0])
+        G_x = (1.0 - t) * leftpt[1] + t * rightpt[1]
         equilibrium = {}
         for phase in equilibrium_system.phases:
             if not ((equilibrium_system.phases[phase].xdata[0] > rightpt[0]) or
@@ -437,10 +440,13 @@ class BinaryIsothermalDiscreteSystem:
                 mask = np.isin(equilibrium_system.phases[phase].Gdata,
                                [rightpt[1], leftpt[1]])
                 if np.count_nonzero(mask) == 2:
-                    equilibrium[phase] = x
+                    equilibrium[phase] = (x, G_x)
                     return equilibrium
                 elif np.count_nonzero(mask) == 1:
-                    equilibrium[phase] = equilibrium_system.phases[phase].xdata[mask]
+                    equilibrium[phase] = (
+                        equilibrium_system.phases[phase].xdata[mask],
+                        equilibrium_system.phases[phase].Gdata[mask],
+                    )
             if len(equilibrium) > 1:
                 break
         return equilibrium
@@ -465,15 +471,15 @@ class BinaryIsothermalDiscreteSystem:
         equilibrium = self.get_equilibrium(x)
         new_system = BinaryIsothermalDiscreteSystem(component=self.component,
             solution_component=self.solution_component)
-        for phase in equilibrium:
+        for phase, (xeq, _Geq) in equilibrium.items():
             if phase in self.phases:
                 new_system.phases[phase] = self.phases[phase].resample_near_xpoint(
-                    equilibrium[phase], xdist=xdist, npts=npts)
+                    xeq, xdist=xdist, npts=npts)
             # if the equilibrium represents 2 concentrations of the same phase, check
             # if a 2-character extension was added to the phase name, e.g., '_1'
             elif phase[:-2] in self.phases:
                 new_system.phases[phase] = self.phases[phase[:-2]].resample_near_xpoint(
-                    equilibrium[phase], xdist=xdist, npts=npts)
+                    xeq, xdist=xdist, npts=npts)
         return new_system
 
     def add_potential(self, potential, xref=0, Gref=0):
