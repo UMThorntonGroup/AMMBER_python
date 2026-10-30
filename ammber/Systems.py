@@ -1,3 +1,5 @@
+import warnings
+
 from scipy.spatial import ConvexHull
 from scipy.spatial.distance import cdist
 from scipy.sparse.csgraph import connected_components
@@ -72,6 +74,46 @@ def _simplex_distance(x, xref):
     """Return Euclidean distance including the dependent solvent fraction."""
     delta = np.asarray(x, dtype=float) - np.asarray(xref, dtype=float)
     return np.sqrt(np.sum(delta**2, axis=-1) + np.sum(delta, axis=-1) ** 2)
+
+
+class IsothermalEquilibrium:
+    """Labeled vertices of a lower-hull facet containing an equilibrium."""
+
+    def __init__(self, points, query=None):
+        self.points = list(points)
+        self.query = None if query is None else np.asarray(query, dtype=float).copy()
+
+    def __iter__(self):
+        return iter(self.points)
+
+    def __len__(self):
+        return len(self.points)
+
+    def __getitem__(self, index):
+        return self.points[index]
+
+    def get_tangent_plane(self):
+        """
+        Return the affine tangent plane ``G = c @ potential + intercept``.
+
+        Raises
+        ------
+        ValueError
+            If the points are empty or do not uniquely define a plane.
+        """
+        if not self.points:
+            raise ValueError("cannot determine a tangent plane from empty points")
+
+        compositions = np.asarray([point[1] for point in self.points], dtype=float)
+        energies = np.asarray([point[2] for point in self.points], dtype=float)
+        n_indep = compositions.shape[1]
+        design = np.column_stack((compositions, np.ones(compositions.shape[0])))
+        coefficients, _, rank, _ = np.linalg.lstsq(design, energies, rcond=None)
+        if rank < n_indep + 1:
+            raise ValueError(
+                "facet points do not uniquely determine a tangent plane"
+            )
+        return coefficients[:-1], float(coefficients[-1])
 
 
 def get_lower_convex_hull(inputpoints):
@@ -387,6 +429,160 @@ class IsothermalQuadraticPhase:
         self.C = float(C)
         self.T = T
 
+    @staticmethod
+    def _quadratic_features(delta):
+        features = []
+        for i in range(delta.shape[1]):
+            for j in range(i, delta.shape[1]):
+                if i == j:
+                    features.append(0.5 * delta[:, i] ** 2)
+                else:
+                    features.append(delta[:, i] * delta[:, j])
+        return np.column_stack(features)
+
+    def fit_phase(self, discrete_phase, equilibrium=None):
+        """
+        Fit this quadratic phase to a discrete phase.
+
+        Parameters
+        ----------
+        discrete_phase : IsothermalDiscretePhase
+            Discrete phase data to fit.
+        equilibrium : IsothermalEquilibrium, optional
+            Equilibrium result from ``IsothermalDiscreteSystem.get_equilibrium``.
+            When provided, its common tangent plane is removed before fitting
+            curvature and restored afterward.
+        """
+        if not isinstance(discrete_phase, IsothermalDiscretePhase):
+            raise TypeError("discrete_phase must be an IsothermalDiscretePhase")
+        if equilibrium is not None and not isinstance(
+            equilibrium, IsothermalEquilibrium
+        ):
+            raise TypeError("equilibrium must be an IsothermalEquilibrium or None")
+
+        xdata = discrete_phase.xdata
+        Gdata = discrete_phase.Gdata
+        n_points, n_indep = xdata.shape
+        self.name = discrete_phase.name
+        self.n_indep = n_indep
+        self.T = discrete_phase.T
+
+        if equilibrium is not None:
+            potential, intercept = equilibrium.get_tangent_plane()
+            potential = np.asarray(potential, dtype=float).reshape(-1)
+            if potential.size != n_indep:
+                raise ValueError(
+                    f"equilibrium potential must contain {n_indep} values"
+                )
+        else:
+            potential = None
+            intercept = 0.0
+
+        if n_points == 1:
+            self.c_ref = xdata[0].copy()
+            self.C = float(Gdata[0])
+            self.A = 5e8 * (np.eye(n_indep) + np.ones((n_indep, n_indep)))
+            self.B = np.zeros(n_indep) if potential is None else potential.copy()
+            return self
+
+        fit_G = Gdata.copy()
+        if potential is not None:
+            fit_G = fit_G - (xdata @ potential + intercept)
+
+        if potential is None:
+            self.c_ref = np.mean(xdata, axis=0)
+            delta = xdata - self.c_ref
+            features = self._quadratic_features(delta)
+            design = np.column_stack((features, delta, np.ones(n_points)))
+            coefficients, _, rank, _ = np.linalg.lstsq(design, Gdata, rcond=None)
+            n_coefficients = design.shape[1]
+            if n_points < n_coefficients:
+                warnings.warn(
+                    f"Fitting phase {self.name!r} with {n_points} points but "
+                    f"{n_coefficients} coefficients; the fit is underdetermined",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            if rank < n_coefficients and n_points >= n_coefficients:
+                warnings.warn(
+                    f"Composition data for phase {self.name!r} do not "
+                    "independently determine all quadratic coefficients",
+                    UserWarning,
+                    stacklevel=2,
+                )
+
+            n_quad = n_indep * (n_indep + 1) // 2
+            self.A = np.zeros((n_indep, n_indep))
+            k = 0
+            for i in range(n_indep):
+                for j in range(i, n_indep):
+                    self.A[i, j] = coefficients[k]
+                    self.A[j, i] = coefficients[k]
+                    k += 1
+            self.B = coefficients[n_quad : n_quad + n_indep].copy()
+            self.C = float(coefficients[-1])
+            return self
+
+        matching_eq_points = [
+            (name, comp, energy)
+            for name, comp, energy in equilibrium.points
+            if name == self.name or name.startswith(self.name + "_")
+        ]
+        if matching_eq_points:
+            eq_compositions = np.asarray(
+                [comp for _, comp, _ in matching_eq_points], dtype=float
+            )
+            eq_in_phase = _rows_in(eq_compositions, xdata)
+            x_eq_in_phase = eq_compositions[eq_in_phase]
+        else:
+            x_eq_in_phase = np.empty((0, n_indep))
+
+        if x_eq_in_phase.shape[0] > 0:
+            self.c_ref = np.mean(x_eq_in_phase, axis=0)
+            self.C = 0.0
+            delta = xdata - self.c_ref
+            target = fit_G
+        else:
+            minimum = int(np.argmin(fit_G))
+            self.c_ref = xdata[minimum].copy()
+            self.C = float(fit_G[minimum])
+            delta = xdata - self.c_ref
+            target = fit_G - self.C
+
+        features = self._quadratic_features(delta)
+        n_coefficients = features.shape[1]
+        if n_points < n_coefficients:
+            warnings.warn(
+                f"Fitting phase {self.name!r} with {n_points} points but "
+                f"{n_coefficients} quadratic coefficients; the fit is "
+                "underdetermined",
+                UserWarning,
+                stacklevel=2,
+            )
+        coefficients, _, rank, _ = np.linalg.lstsq(features, target, rcond=None)
+        if rank < n_coefficients and n_points >= n_coefficients:
+            warnings.warn(
+                f"Composition data for phase {self.name!r} do not "
+                "independently determine all quadratic coefficients",
+                UserWarning,
+                stacklevel=2,
+            )
+
+        self.A = np.zeros((n_indep, n_indep))
+        k = 0
+        for i in range(n_indep):
+            for j in range(i, n_indep):
+                self.A[i, j] = coefficients[k]
+                self.A[j, i] = coefficients[k]
+                k += 1
+        self.B = np.zeros(n_indep)
+
+        plane_energy_at_ref = self.c_ref @ potential + intercept
+        self.add_potential(
+            potential, xref=self.c_ref, Gref=plane_energy_at_ref
+        )
+        return self
+
     def free_energy(self, c):
         """
         Evaluate the free energy at one or more compositions.
@@ -638,12 +834,9 @@ class IsothermalDiscreteSystem:
 
         Returns
         -------
-        list of tuples
-            Each tuple contains ``(phase_name, composition, G)`` for one
-            phase occurrence on the containing lower-hull facet. Repeated
-            phase names are retained when a phase occurs at multiple facet
-            vertices. In a single-phase region, the tuple contains x and the
-            hull energy at x.
+        IsothermalEquilibrium
+            Labeled vertices of the containing facet as
+            ``(phase_name, composition, G)`` entries.
         """
         x = np.asarray(x, dtype=float).ravel()
         self.get_lc_hull()
@@ -657,16 +850,14 @@ class IsothermalDiscreteSystem:
             facets = get_lower_convex_hull_facets(self._all_points())
 
         containing = None
-        lambdas = None
         for facet in facets:
             comps = facet[:, :-1]
-            inside, lam = _point_in_simplex(x, comps)
+            inside, _ = _point_in_simplex(x, comps)
             if inside:
                 containing = facet
-                lambdas = lam
                 break
         if containing is None:
-            return []
+            return IsothermalEquilibrium([], query=x)
 
         # Map facet vertices to phases that own them
         vertex_phase_comp = []
@@ -680,14 +871,9 @@ class IsothermalDiscreteSystem:
                     break
 
         if not vertex_phase_comp:
-            return []
+            return IsothermalEquilibrium([], query=x)
 
-        phase_names = [p for p, _, _ in vertex_phase_comp]
-        if len(set(phase_names)) == 1:
-            G_x = float(lambdas @ containing[:, -1])
-            return [(phase_names[0], x.copy(), G_x)]
-
-        return vertex_phase_comp
+        return IsothermalEquilibrium(vertex_phase_comp, query=x)
 
     def resample_near_equilibrium(self, x, xdist=0.001, npts=21):
         """
@@ -708,7 +894,13 @@ class IsothermalDiscreteSystem:
             components=self.components,
             solution_component=self.solution_component,
         )
-        for phase, xeq, _ in equilibrium:
+        if equilibrium.points and len({name for name, _, _ in equilibrium}) == 1:
+            equilibrium_points = [
+                (equilibrium.points[0][0], equilibrium.query, equilibrium.points[0][2])
+            ]
+        else:
+            equilibrium_points = equilibrium.points
+        for phase, xeq, _ in equilibrium_points:
             if phase in self.phases:
                 source_phase_name = phase
             elif phase[:-2] in self.phases:
@@ -767,6 +959,49 @@ class IsothermalQuadraticSystem:
                     f"phase {name!r} has {phase.n_indep} independent components; "
                     f"expected {expected_n_indep}"
                 )
+
+    def from_discrete(self, discrete_system, equilibrium=None):
+        """
+        Fit quadratic phases from a discrete system.
+
+        Parameters
+        ----------
+        discrete_system : IsothermalDiscreteSystem
+            System containing the discrete phase data to fit.
+        equilibrium : IsothermalEquilibrium, optional
+            Equilibrium result passed to each phase fit.
+
+        Returns
+        -------
+        IsothermalQuadraticSystem
+            This system, populated with the fitted phases.
+        """
+        if not isinstance(discrete_system, IsothermalDiscreteSystem):
+            raise TypeError("discrete_system must be an IsothermalDiscreteSystem")
+        if equilibrium is not None and not isinstance(
+            equilibrium, IsothermalEquilibrium
+        ):
+            raise TypeError("equilibrium must be an IsothermalEquilibrium or None")
+
+        self.components = list(discrete_system.components)
+        self.solution_component = discrete_system.solution_component
+        fitted_phases = {}
+        for name, discrete_phase in discrete_system.phases.items():
+            n_indep = discrete_phase.n_indep
+            phase = IsothermalQuadraticPhase(
+                name,
+                A=np.zeros((n_indep, n_indep)),
+                B=np.zeros(n_indep),
+                C=0.0,
+                c_ref=np.zeros(n_indep),
+                T=discrete_phase.T,
+            )
+            phase.fit_phase(discrete_phase, equilibrium=equilibrium)
+            fitted_phases[name] = phase
+        self.phases = fitted_phases
+        if fitted_phases:
+            self.T = next(iter(fitted_phases.values())).T
+        return self
 
     def add_phase(self, name, A, B, C, c_ref):
         """
