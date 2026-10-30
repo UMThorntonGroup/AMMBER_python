@@ -638,9 +638,12 @@ class IsothermalDiscreteSystem:
 
         Returns
         -------
-        dict {string phase_name : (array compositions, float G)}
-            composition and free energy of each phase present at equilibrium at x.
-            For a single-phase region, G is the hull energy at x.
+        list of tuples
+            Each tuple contains ``(phase_name, composition, G)`` for one
+            phase occurrence on the containing lower-hull facet. Repeated
+            phase names are retained when a phase occurs at multiple facet
+            vertices. In a single-phase region, the tuple contains x and the
+            hull energy at x.
         """
         x = np.asarray(x, dtype=float).ravel()
         self.get_lc_hull()
@@ -663,7 +666,7 @@ class IsothermalDiscreteSystem:
                 lambdas = lam
                 break
         if containing is None:
-            return {}
+            return []
 
         # Map facet vertices to phases that own them
         vertex_phase_comp = []
@@ -677,18 +680,14 @@ class IsothermalDiscreteSystem:
                     break
 
         if not vertex_phase_comp:
-            return {}
+            return []
 
         phase_names = [p for p, _, _ in vertex_phase_comp]
         if len(set(phase_names)) == 1:
             G_x = float(lambdas @ containing[:, -1])
-            return {phase_names[0]: (x.copy(), G_x)}
+            return [(phase_names[0], x.copy(), G_x)]
 
-        equilibrium = {}
-        for phase_name, comp, G in vertex_phase_comp:
-            if phase_name not in equilibrium:
-                equilibrium[phase_name] = (comp, G)
-        return equilibrium
+        return vertex_phase_comp
 
     def resample_near_equilibrium(self, x, xdist=0.001, npts=21):
         """
@@ -709,15 +708,26 @@ class IsothermalDiscreteSystem:
             components=self.components,
             solution_component=self.solution_component,
         )
-        for phase, (xeq, _) in equilibrium.items():
+        for phase, xeq, _ in equilibrium:
             if phase in self.phases:
-                source_phase = phase
+                source_phase_name = phase
             elif phase[:-2] in self.phases:
-                source_phase = phase[:-2]
+                source_phase_name = phase[:-2]
             else:
                 continue
-            new_system.phases[phase] = self.phases[source_phase].resample_near_xpoint(
+            source_phase = self.phases[source_phase_name]
+            resampled = source_phase.resample_near_xpoint(
                 xeq, xdist=xdist, npts=npts
+            )
+            if phase in new_system.phases:
+                existing = new_system.phases[phase]
+                xdata = np.vstack((existing.xdata, resampled.xdata))
+                Gdata = np.concatenate((existing.Gdata, resampled.Gdata))
+            else:
+                xdata = resampled.xdata
+                Gdata = resampled.Gdata
+            new_system.phases[phase] = IsothermalDiscretePhase(
+                phase, xdata, Gdata, source_phase.T
             )
         return new_system
 

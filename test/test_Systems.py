@@ -133,11 +133,34 @@ def test_isothermal_discrete_system_hull_and_equilibrium():
     assert any(name.startswith("FCC") or name.startswith("BCC") for name in eq_sys.phases)
 
     eq = sys.get_equilibrium([0.25, 0.15])
-    assert "FCC" in eq
-    comp, G = eq["FCC"]
+    assert any(name == "FCC" for name, _, _ in eq)
+    _, comp, G = next(item for item in eq if item[0] == "FCC")
     np.testing.assert_allclose(comp, [0.25, 0.15])
     assert np.isscalar(G) or np.size(G) == 1
     assert np.isfinite(G)
+
+
+def test_get_equilibrium_keeps_repeated_phase_occurrences():
+    system = IsothermalDiscreteSystem(components=["B", "C"], solution_component="A")
+    system.add_phase("FCC", [[0.0, 0.0], [1.0, 0.0]], [0.0, 0.0])
+    system.add_phase("BCC", [[0.0, 1.0]], [0.0])
+    system._is_equilibrium_system = True
+
+    equilibrium = system.get_equilibrium([0.3, 0.3])
+
+    assert [name for name, _, _ in equilibrium] == ["FCC", "FCC", "BCC"]
+    np.testing.assert_allclose(equilibrium[0][1], [0.0, 0.0])
+    np.testing.assert_allclose(equilibrium[1][1], [1.0, 0.0])
+    np.testing.assert_allclose(equilibrium[2][1], [0.0, 1.0])
+    np.testing.assert_allclose([energy for _, _, energy in equilibrium], 0.0)
+
+    near_equilibrium = system.resample_near_equilibrium(
+        [0.3, 0.3], xdist=0.1, npts=5
+    )
+    assert set(near_equilibrium.phases) == {"FCC", "BCC"}
+    np.testing.assert_array_equal(
+        near_equilibrium.phases["FCC"].xdata, [[0.0, 0.0], [1.0, 0.0]]
+    )
 
 
 def test_simplex_distance_is_invariant_to_solvent_label():
