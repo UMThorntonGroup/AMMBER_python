@@ -9,6 +9,10 @@ Presently, the framework consists of two modules: [AMMBER_python](https://github
 
 # Quick Start Guide
 
+For multicomponent discrete and quadratic phase/system APIs, including
+equilibrium and fitting examples, see the
+[Systems.py user guide](docs/Systems.md).
+
 ### Install:
 
 To install the AMMBER Python package, you can use `pip`. First, ensure your `pip` is up to date:
