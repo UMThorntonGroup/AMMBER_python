@@ -6,6 +6,7 @@ three solution phases, then plots:
   1) composition-plane scatter of each phase colored by G, hull facets, and
      equilibrium at a chosen overall composition
   2) 3D composition-energy view of the same data
+  3) 2D and 3D views of phase data resampled near equilibrium
 
 Run from the repository root:
     python examples/ternary_discrete_equilibrium.py
@@ -30,6 +31,9 @@ from ammber.Systems import IsothermalDiscreteSystem, get_lower_convex_hull_facet
 QUERY_COMPOSITION = np.array([0.28, 0.22])
 TEMPERATURE = 1000.0
 OUTPUT_PATH = Path(__file__).resolve().parent / "ternary_discrete_equilibrium.png"
+NEAR_EQUILIBRIUM_OUTPUT_PATH = (
+    Path(__file__).resolve().parent / "ternary_near_equilibrium.png"
+)
 
 
 def sample_simplex(center, scale, npts, rng, max_sum=0.95):
@@ -143,7 +147,7 @@ def plot_example(system, query, output_path=OUTPUT_PATH):
         tri = np.vstack([containing_facet[:, :2], containing_facet[0, :2]])
         ax2d.plot(tri[:, 0], tri[:, 1], color="crimson", lw=2.0, zorder=4)
 
-    for phase_name, (comp, _G) in equilibrium.items():
+    for phase_name, comp, _G in equilibrium:
         comp = np.atleast_1d(comp).astype(float)
         if comp.size == 1:
             continue
@@ -217,7 +221,7 @@ def plot_example(system, query, output_path=OUTPUT_PATH):
             depthshade=False,
             label="query on hull",
         )
-    for phase_name, (comp, G_eq) in equilibrium.items():
+    for phase_name, comp, G_eq in equilibrium:
         comp = np.asarray(comp, dtype=float).ravel()
         if comp.size < 2:
             continue
@@ -242,7 +246,7 @@ def plot_example(system, query, output_path=OUTPUT_PATH):
 
     fig.suptitle(
         f"Synthetic ternary A-B-C at T={TEMPERATURE:.0f}  |  "
-        f"equilibrium phases: {', '.join(equilibrium.keys()) or '(none)'}",
+        f"equilibrium phases: {', '.join(name for name, _, _ in equilibrium) or '(none)'}",
         fontsize=11,
     )
     fig.tight_layout()
@@ -250,8 +254,125 @@ def plot_example(system, query, output_path=OUTPUT_PATH):
     print(f"Saved figure to {output_path}")
     print(f"Query composition (x_B, x_C) = {query.tolist()}")
     print("Equilibrium:")
-    for name, (comp, G) in equilibrium.items():
+    for name, comp, G in equilibrium:
         print(f"  {name}: x={np.asarray(comp).tolist()}, G={float(np.asarray(G).ravel()[0]):.4f}")
+    if plt.get_backend().lower() != "agg":
+        plt.show()
+    else:
+        plt.close(fig)
+
+
+def plot_near_equilibrium(
+    system,
+    near_equilibrium_system,
+    query,
+    xdist,
+    output_path=NEAR_EQUILIBRIUM_OUTPUT_PATH,
+):
+    """Plot sampled phase data in the neighborhood of the query equilibrium."""
+    equilibrium = system.get_equilibrium(query)
+    phase_colors = {"ALPHA": "C0", "BETA": "C1", "GAMMA": "C2"}
+    display_points = [query]
+    display_points.extend(
+        np.asarray(comp, dtype=float).ravel()[:2]
+        for _, comp, _ in equilibrium
+        if np.asarray(comp).size >= 2
+    )
+    display_points.extend(
+        phase.xdata for phase in near_equilibrium_system.phases.values()
+    )
+    display_points = np.concatenate(
+        [np.atleast_2d(points) for points in display_points], axis=0
+    )
+    lower = np.maximum(0.0, display_points.min(axis=0) - xdist)
+    upper = np.minimum(1.0, display_points.max(axis=0) + xdist)
+
+    fig = plt.figure(figsize=(12.5, 5.5))
+    ax2d = fig.add_subplot(1, 2, 1)
+    ax3d = fig.add_subplot(1, 2, 2, projection="3d")
+
+    for name, phase in near_equilibrium_system.phases.items():
+        color = phase_colors.get(name.split("_")[0], "gray")
+        ax2d.scatter(
+            phase.xdata[:, 0],
+            phase.xdata[:, 1],
+            c=color,
+            s=12,
+            alpha=0.65,
+            edgecolors="none",
+            label=f"{name} resampled points",
+        )
+        ax3d.scatter(
+            phase.xdata[:, 0],
+            phase.xdata[:, 1],
+            phase.Gdata,
+            c=color,
+            s=8,
+            alpha=0.5,
+            label=name,
+        )
+
+    ax2d.scatter(
+        query[0],
+        query[1],
+        marker="*",
+        s=220,
+        c="crimson",
+        edgecolors="k",
+        linewidths=0.6,
+        label="overall composition",
+        zorder=5,
+    )
+    for phase_name, comp, G_eq in equilibrium:
+        comp = np.asarray(comp, dtype=float).ravel()
+        if comp.size < 2:
+            continue
+        color = phase_colors.get(phase_name.split("_")[0], "crimson")
+        ax2d.scatter(
+            comp[0],
+            comp[1],
+            s=18,
+            facecolors="none",
+            edgecolors=color,
+            linewidths=1.5,
+            marker="D",
+            label=f"eq: {phase_name}",
+            zorder=6,
+        )
+        ax3d.scatter(
+            [comp[0]],
+            [comp[1]],
+            [G_eq],
+            s=18,
+            facecolors="none",
+            edgecolors=color,
+            linewidths=1.5,
+            marker="D",
+            depthshade=False,
+            label=f"eq: {phase_name}",
+        )
+
+    ax2d.set_xlabel(r"$x_\mathrm{B}$")
+    ax2d.set_ylabel(r"$x_\mathrm{C}$")
+    ax2d.set_xlim(lower[0], upper[0])
+    ax2d.set_ylim(lower[1], upper[1])
+    ax2d.set_aspect("equal")
+    ax2d.set_title(f"Near-equilibrium compositions ($x_{{dist}}={xdist:g}$)")
+    ax2d.legend(loc="upper right", fontsize=8, framealpha=0.9)
+
+    ax3d.set_xlabel(r"$x_\mathrm{B}$")
+    ax3d.set_ylabel(r"$x_\mathrm{C}$")
+    ax3d.set_zlabel("G", labelpad=8)
+    ax3d.set_xlim(lower[0], upper[0])
+    ax3d.set_ylim(lower[1], upper[1])
+    ax3d.set_title("Resampled near-equilibrium free energies")
+    ax3d.view_init(elev=22, azim=-55)
+    ax3d.legend(loc="upper left", fontsize=8)
+
+    fig.suptitle("Local phase data around the selected equilibrium", fontsize=11)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=160)
+    print(f"Saved near-equilibrium figure to {output_path}")
     if plt.get_backend().lower() != "agg":
         plt.show()
     else:
@@ -261,6 +382,13 @@ def plot_example(system, query, output_path=OUTPUT_PATH):
 def main():
     system = build_synthetic_ternary()
     plot_example(system, QUERY_COMPOSITION)
+    xdist = 0.02
+    near_equilibrium_system = system.resample_near_equilibrium(
+        QUERY_COMPOSITION, xdist=xdist, npts=31
+    )
+    plot_near_equilibrium(
+        system, near_equilibrium_system, QUERY_COMPOSITION, xdist=xdist
+    )
 
 
 if __name__ == "__main__":
