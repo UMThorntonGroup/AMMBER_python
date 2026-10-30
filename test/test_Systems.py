@@ -109,6 +109,132 @@ def test_isothermal_quadratic_system_discretization_and_potential():
     assert gridded.xdata.shape[1] == 2
 
 
+def test_isothermal_quadratic_fit_without_equilibrium():
+    xdata = np.array(
+        [
+            [0.1, 0.1],
+            [0.2, 0.1],
+            [0.3, 0.1],
+            [0.1, 0.2],
+            [0.2, 0.2],
+            [0.3, 0.2],
+            [0.1, 0.3],
+            [0.2, 0.3],
+            [0.3, 0.3],
+        ]
+    )
+    source = IsothermalQuadraticPhase(
+        "FCC",
+        A=[[4.0, 1.0], [1.0, 6.0]],
+        B=[2.0, -3.0],
+        C=-10.0,
+        c_ref=[0.2, 0.2],
+    ).discretize(xdata)
+    fitted = IsothermalQuadraticPhase(
+        "placeholder", A=np.zeros((2, 2)), B=np.zeros(2), C=0, c_ref=[0, 0]
+    )
+
+    fitted.fit_phase(source)
+
+    np.testing.assert_allclose(fitted.free_energy(xdata), source.Gdata)
+
+
+def test_isothermal_quadratic_fit_warns_when_underdetermined():
+    import pytest
+
+    source = IsothermalDiscretePhase("BCC", [0.2, 0.8], [1.0, 2.0], T=500.0)
+    fitted = IsothermalQuadraticPhase(
+        "placeholder", A=[[0.0]], B=[0.0], C=0, c_ref=[0.0]
+    )
+
+    with pytest.warns(UserWarning, match="underdetermined"):
+        fitted.fit_phase(source)
+
+
+def test_isothermal_quadratic_fit_with_equilibrium_and_system():
+    potential = np.array([5.0, -3.0])
+    intercept = 10.0
+    xdata = np.array(
+        [[0.0, 0.0], [1.0, 0.0], [0.2, 0.3], [0.8, 0.4], [0.5, 0.8]]
+    )
+    Gdata = xdata @ potential + intercept + 2.0 * xdata[:, 1] ** 2
+    discrete_system = IsothermalDiscreteSystem(
+        components=["B", "C"], solution_component="A"
+    )
+    discrete_system.add_phase("FCC", xdata, Gdata, T=800.0)
+    discrete_system.add_phase(
+        "BCC", [[0.5, 1.0]], [potential @ [0.5, 1.0] + intercept], T=800.0
+    )
+    equilibrium = discrete_system.get_equilibrium([0.5, 0.3])
+
+    fitted_potential, fitted_intercept = equilibrium.get_tangent_plane()
+    np.testing.assert_allclose(fitted_potential, potential)
+    np.testing.assert_allclose(fitted_intercept, intercept)
+    assert len(equilibrium.points) == 3
+
+    fitted_phase = IsothermalQuadraticPhase(
+        "placeholder", A=np.zeros((2, 2)), B=np.zeros(2), C=0, c_ref=[0, 0]
+    )
+    fitted_phase.fit_phase(discrete_system.phases["FCC"], equilibrium)
+    np.testing.assert_allclose(
+        fitted_phase.A, [[0.0, 0.0], [0.0, 4.0]], atol=1e-12
+    )
+    np.testing.assert_allclose(fitted_phase.B, potential)
+    np.testing.assert_allclose(
+        fitted_phase.free_energy(xdata), discrete_system.phases["FCC"].Gdata
+    )
+    np.testing.assert_array_equal(
+        discrete_system.phases["FCC"].Gdata, Gdata
+    )
+
+    liquid_x = np.array(
+        [
+            [0.1, 0.1],
+            [0.2, 0.1],
+            [0.3, 0.1],
+            [0.1, 0.2],
+            [0.2, 0.2],
+            [0.3, 0.2],
+            [0.1, 0.3],
+            [0.2, 0.3],
+            [0.3, 0.3],
+        ]
+    )
+    liquid_ref = np.array([0.2, 0.2])
+    liquid_A = np.array([[2.0, 0.2], [0.2, 4.0]])
+    liquid_delta = liquid_x - liquid_ref
+    liquid_residual = (
+        3.0
+        + 0.5
+        * np.einsum("ni,ij,nj->n", liquid_delta, liquid_A, liquid_delta)
+    )
+    discrete_system.add_phase(
+        "LIQUID",
+        liquid_x,
+        liquid_x @ potential + intercept + liquid_residual,
+        T=800.0,
+    )
+
+    fitted_system = IsothermalQuadraticSystem().from_discrete(
+        discrete_system, equilibrium=equilibrium
+    )
+    assert set(fitted_system.phases) == {"FCC", "BCC", "LIQUID"}
+    np.testing.assert_allclose(fitted_system.phases["FCC"].B, potential)
+    np.testing.assert_allclose(fitted_system.phases["BCC"].B, potential)
+    np.testing.assert_allclose(
+        fitted_system.phases["BCC"].A,
+        5e8 * np.array([[2.0, 1.0], [1.0, 2.0]]),
+    )
+    np.testing.assert_allclose(fitted_system.phases["LIQUID"].A, liquid_A)
+    np.testing.assert_allclose(fitted_system.phases["LIQUID"].B, potential)
+    np.testing.assert_allclose(fitted_system.phases["LIQUID"].C, 13.4)
+    np.testing.assert_allclose(fitted_system.phases["LIQUID"].c_ref, liquid_ref)
+    np.testing.assert_allclose(
+        fitted_system.phases["LIQUID"].free_energy(liquid_x),
+        discrete_system.phases["LIQUID"].Gdata,
+    )
+
+
 def test_isothermal_discrete_system_hull_and_equilibrium():
     rng = np.random.default_rng(0)
     x = rng.uniform(0.05, 0.4, size=(80, 2))
@@ -134,10 +260,7 @@ def test_isothermal_discrete_system_hull_and_equilibrium():
 
     eq = sys.get_equilibrium([0.25, 0.15])
     assert any(name == "FCC" for name, _, _ in eq)
-    _, comp, G = next(item for item in eq if item[0] == "FCC")
-    np.testing.assert_allclose(comp, [0.25, 0.15])
-    assert np.isscalar(G) or np.size(G) == 1
-    assert np.isfinite(G)
+    assert all(len(comp) == 2 and np.isfinite(G) for _, comp, G in eq)
 
 
 def test_get_equilibrium_keeps_repeated_phase_occurrences():
