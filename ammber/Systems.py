@@ -1035,6 +1035,118 @@ class IsothermalQuadraticSystem:
         for phase in self.phases.values():
             phase.remove_potential(potential, xref=xref, Gref=Gref)
 
+    def add_to_dict(
+        self,
+        system_dict,
+        add_templates=False,
+        c0=None,
+        Vm=None,
+        convert_to_volumetric_energy=True,
+    ):
+        """
+        Write this system's thermodynamic parameters into a PRISMS-PF dict.
+
+        Existing phase entries are updated by name, leaving their other
+        properties (for example ``D``) intact. Existing system-level template
+        and metadata values are also preserved.
+
+        Parameters
+        ----------
+        system_dict : dict
+            Dictionary to update in place.
+        add_templates : bool
+            Add missing kinetic parameters and system-level template fields.
+        c0 : dict, optional
+            Optional mapping from phase names to initial composition vectors.
+            Used only when adding templates.
+        Vm : float, optional
+            Nominal molar or number-volume value for the system template.
+        convert_to_volumetric_energy : bool
+            Value for ``convert_fractional_to_volumetric_energy``.
+
+        Returns
+        -------
+        dict
+            The updated ``system_dict``.
+        """
+        if not isinstance(system_dict, dict):
+            raise TypeError("system_dict must be a dict")
+        if not isinstance(add_templates, (bool, np.bool_)):
+            raise TypeError("add_templates must be a bool")
+        if c0 is not None and not isinstance(c0, dict):
+            raise TypeError("c0 must be a dict mapping phase names to compositions")
+
+        system_dict["solution_component"] = self.solution_component
+        system_dict["components"] = list(self.components)
+        system_dict["convert_fractional_to_volumetric_energy"] = bool(
+            convert_to_volumetric_energy
+        )
+
+        phases = system_dict.setdefault("phases", [])
+        if not isinstance(phases, list):
+            raise TypeError("system_dict['phases'] must be a list")
+        phases_by_name = {}
+        for phase_data in phases:
+            if not isinstance(phase_data, dict) or "name" not in phase_data:
+                raise ValueError("each existing phase entry must be a dict with a name")
+            phase_name = phase_data["name"]
+            if phase_name in phases_by_name:
+                raise ValueError(f"duplicate phase entry for {phase_name!r}")
+            phases_by_name[phase_name] = phase_data
+
+        for phase_name, phase in self.phases.items():
+            phase_data = phases_by_name.get(phase_name)
+            if phase_data is None:
+                phase_data = {"name": phase_name}
+                phases.append(phase_data)
+                phases_by_name[phase_name] = phase_data
+
+            phase_data["c_ref"] = phase.c_ref.tolist()
+            phase_data["A"] = phase.A.tolist()
+            phase_data["B"] = phase.B.tolist()
+            phase_data["C"] = phase.C
+
+            if add_templates:
+                phase_data.setdefault(
+                    "D", np.full((phase.n_indep, phase.n_indep), -1.0).tolist()
+                )
+                if "c0" not in phase_data:
+                    initial_composition = None if c0 is None else c0.get(phase_name)
+                    if initial_composition is None:
+                        phase_data["c0"] = np.full(phase.n_indep, -1.0).tolist()
+                    else:
+                        initial_composition = np.asarray(
+                            initial_composition, dtype=float
+                        ).reshape(-1)
+                        if initial_composition.size != phase.n_indep:
+                            raise ValueError(
+                                f"c0 for phase {phase_name!r} must contain "
+                                f"{phase.n_indep} values"
+                            )
+                        phase_data["c0"] = initial_composition.tolist()
+
+        if add_templates:
+            n_phases = len(self.phases)
+            system_dict.setdefault("l_int", -1.0)
+            system_dict.setdefault("Vm", Vm if Vm is not None else -1.0)
+            system_dict.setdefault("order_parameters", list(self.phases))
+            system_dict.setdefault(
+                "dimensions",
+                {
+                    "length_scale": 0.0,
+                    "time_scale": 0.0,
+                    "energy_density_scale": 0.0,
+                },
+            )
+            system_dict.setdefault(
+                "sigma", np.full((n_phases, n_phases), -1.0).tolist()
+            )
+            system_dict.setdefault(
+                "mu_int", np.full((n_phases, n_phases), -1.0).tolist()
+            )
+
+        return system_dict
+
     def to_discrete(self, xdata=None, npts=21):
         """
         Sample all phases into an ``IsothermalDiscreteSystem``.
