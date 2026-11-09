@@ -109,6 +109,61 @@ def test_isothermal_quadratic_system_discretization_and_potential():
     assert gridded.xdata.shape[1] == 2
 
 
+def test_isothermal_quadratic_system_add_to_dict():
+    import json
+
+    system = IsothermalQuadraticSystem(
+        components=["B", "C"], solution_component="A", T=900.0
+    )
+    system.add_phase(
+        "FCC",
+        A=[[2.0, 0.5], [0.5, 4.0]],
+        B=[1.0, -2.0],
+        C=-10.0,
+        c_ref=[0.1, 0.2],
+    )
+    system.add_phase(
+        "BCC",
+        A=[[8.0, 0.0], [0.0, 6.0]],
+        B=[0.0, 0.0],
+        C=-8.0,
+        c_ref=[0.3, 0.1],
+    )
+
+    output = {
+        "phases": [
+            {"name": "FCC", "D": [[1.0, 0.0], [0.0, 1.0]], "custom": 7}
+        ],
+        "Vm": 2.5,
+        "comments": ["retained"],
+        "sigma": [[1.0, 2.0], [3.0, 4.0]],
+    }
+    result = system.add_to_dict(
+        output,
+        add_templates=True,
+        c0={"FCC": [0.2, 0.3]},
+        Vm=5.0,
+    )
+
+    assert result is output
+    assert output["solution_component"] == "A"
+    assert output["components"] == ["B", "C"]
+    assert output["convert_fractional_to_volumetric_energy"] is True
+    assert output["phases"][0]["D"] == [[1.0, 0.0], [0.0, 1.0]]
+    assert output["phases"][0]["custom"] == 7
+    assert output["phases"][0]["A"] == [[2.0, 0.5], [0.5, 4.0]]
+    assert output["phases"][0]["c0"] == [0.2, 0.3]
+    assert output["phases"][1]["name"] == "BCC"
+    assert output["phases"][1]["c0"] == [-1.0, -1.0]
+    assert output["phases"][1]["D"] == [[-1.0, -1.0], [-1.0, -1.0]]
+    assert output["Vm"] == 2.5
+    assert output["sigma"] == [[1.0, 2.0], [3.0, 4.0]]
+    assert output["mu_int"] == [[-1.0, -1.0], [-1.0, -1.0]]
+    assert output["order_parameters"] == ["FCC", "BCC"]
+    assert output["comments"] == ["retained"]
+    json.dumps(output)
+
+
 def test_isothermal_quadratic_fit_without_equilibrium():
     xdata = np.array(
         [

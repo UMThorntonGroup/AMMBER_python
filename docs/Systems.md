@@ -193,6 +193,32 @@ phases into an `IsothermalDiscreteSystem`. Provide `xdata` to choose exact
 sample compositions, or omit it to generate a regular grid over the independent
 composition simplex with `npts` points along each axis.
 
+### Exporting to a PRISMS-PF system dictionary
+
+`add_to_dict(system_dict, add_templates=False, c0=None, Vm=None,
+convert_to_volumetric_energy=True)` writes the system's component metadata and
+quadratic phase coefficients into a JSON-compatible dictionary, modifying and
+returning the same dictionary. It uses the `phases` list format from the
+PRISMS-PF quadratic system files:
+
+```python
+system_dict = {"dimensions": {"length_scale": 0.0}}
+quadratic_system.add_to_dict(
+    system_dict,
+    add_templates=True,
+    c0={"FCC": [0.20, 0.15]},
+    Vm=1.0,
+)
+```
+
+Each phase entry receives `name`, `c_ref`, `A`, `B`, and `C`. Existing entries
+are matched by name, and unrelated keys such as a configured `D` matrix are
+preserved. With `add_templates=True`, missing per-phase `D` and `c0` entries
+are initialized to `-1` placeholders (shaped for the independent components);
+missing top-level `sigma`, `mu_int`, `l_int`, `Vm`, `order_parameters`, and
+`dimensions` fields are also added. Existing template values are not
+overwritten. The `c0` argument maps phase names to initial composition vectors.
+
 ## Ternary example
 
 The repository includes a complete discrete ternary equilibrium and
