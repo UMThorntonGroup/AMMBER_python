@@ -1,7 +1,7 @@
 import warnings
 
-from scipy.spatial import ConvexHull
-from scipy.spatial.distance import cdist
+from scipy.spatial import ConvexHull, cKDTree
+from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 from scipy.interpolate import LinearNDInterpolator
 import numpy as np
@@ -32,11 +32,16 @@ def _as_composition_array(xdata, Gdata):
 
 
 def _rows_in(points, reference, tol=1e-8):
-    """Boolean mask of rows in points that match any row in reference within tol."""
+    """
+    Boolean mask of rows in points that match any row in reference within tol
+    (in every coordinate). Uses a KD-tree, so memory grows linearly with the
+    number of points.
+    """
     if points.size == 0 or reference.size == 0:
         return np.zeros(points.shape[0], dtype=bool)
-    diffs = np.abs(points[:, None, :] - reference[None, :, :])
-    return np.any(np.all(diffs < tol, axis=2), axis=1)
+    # Chebyshev (max-coordinate) distance to the nearest reference row
+    dist, _ = cKDTree(reference).query(points, k=1, p=np.inf)
+    return dist < tol
 
 
 def _point_in_simplex(x, simplex_vertices, tol=1e-10):
@@ -676,7 +681,8 @@ class IsothermalDiscreteSystem:
         self._lower_facets = None
         self._is_equilibrium_system = False
 
-    def fromTDB(self, db, components, solution_component, temperature, phase_list=None):
+    def fromTDB(self, db, components, solution_component, temperature, phase_list=None,
+                pdens=1001):
         """
         Constructs discrete phases from a pycalphad database.
 
@@ -692,6 +698,10 @@ class IsothermalDiscreteSystem:
         phase_list : list (string)
             If specified, only listed phases will be constructed; otherwise,
             all available phases will be constructed.
+        pdens : int
+            Sampling density passed to pycalphad's calculate (points per
+            degree of freedom of each phase). Larger values resolve the free
+            energy near equilibrium compositions better, at higher cost.
         """
         components = list(components)
         elements = components + [solution_component, "VA"]
@@ -699,10 +709,10 @@ class IsothermalDiscreteSystem:
         self.solution_component = solution_component
         if phase_list is None:
             phase_list = list(db.phases.keys())
-            cal = calculate(db, elements, phase_list, P=101325, T=temperature, output="GM", pdens=1001)
+            cal = calculate(db, elements, phase_list, P=101325, T=temperature, output="GM", pdens=pdens)
             phase_list = set(cal.Phase.data[0][0][0])
         for phase_name in phase_list:
-            result = calculate(db, elements, phase_name, P=101325, T=temperature, output="GM", pdens=1001)
+            result = calculate(db, elements, phase_name, P=101325, T=temperature, output="GM", pdens=pdens)
             x_cols = [result.X.sel(component=c).data[0][0][0] for c in components]
             xdata = np.stack(x_cols, axis=-1)
             self.phases[phase_name] = IsothermalDiscretePhase(
@@ -800,8 +810,16 @@ class IsothermalDiscreteSystem:
             n = xdata.shape[0]
             if n <= 1:
                 continue
-            dist = cdist(xdata, xdata)
-            n_comp, labels = connected_components(dist <= miscibility_gap_threshold)
+            # Graph of points within the threshold of each other (KD-tree pairs,
+            # avoiding an n x n distance matrix)
+            pairs = cKDTree(xdata).query_pairs(
+                miscibility_gap_threshold, output_type="ndarray"
+            )
+            graph = coo_matrix(
+                (np.ones(len(pairs), dtype=bool), (pairs[:, 0], pairs[:, 1])),
+                shape=(n, n),
+            )
+            n_comp, labels = connected_components(graph, directed=False)
             if n_comp <= 1:
                 continue
             equilibrium_system.phases.pop(phase)
