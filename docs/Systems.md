@@ -47,9 +47,11 @@ when there is only one energy value. Duplicate compositions are removed,
 keeping the first corresponding energy.
 
 Alternatively, `IsothermalDiscreteSystem.fromTDB(db, components,
-solution_component, temperature, phase_list=None)` samples phases from a
-pycalphad database. If `phase_list` is omitted, the system determines which
-phases are present at the requested temperature.
+solution_component, temperature, phase_list=None, pdens=1001)` samples phases
+from a pycalphad database. If `phase_list` is omitted, the system determines
+which phases are present at the requested temperature. `pdens` is the pycalphad
+sampling density (points per degree of freedom); raise it to resolve the free
+energy near equilibrium compositions when fitting quadratics.
 
 ### Lower hull and equilibrium
 
