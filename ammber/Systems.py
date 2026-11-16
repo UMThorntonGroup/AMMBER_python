@@ -1062,7 +1062,7 @@ class IsothermalQuadraticSystem:
         convert_to_volumetric_energy=True,
     ):
         """
-        Write this system's thermodynamic parameters into a PRISMS-PF dict.
+        Write this system's thermodynamic parameters into a AMMBER-PRISMS-PF dict.
 
         Existing phase entries are updated by name, leaving their other
         properties (for example ``D``) intact. Existing system-level template
@@ -1143,11 +1143,13 @@ class IsothermalQuadraticSystem:
                             )
                         phase_data["c0"] = initial_composition.tolist()
 
+        phases[:] = sorted(phases, key=lambda phase_data: str(phase_data["name"]))
+
         if add_templates:
             n_phases = len(self.phases)
             system_dict.setdefault("l_int", -1.0)
             system_dict.setdefault("Vm", Vm if Vm is not None else -1.0)
-            system_dict.setdefault("order_parameters", list(self.phases))
+            system_dict.setdefault("order_parameters", sorted(self.phases, key=str))
             system_dict.setdefault(
                 "dimensions",
                 {
