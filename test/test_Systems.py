@@ -149,17 +149,18 @@ def test_isothermal_quadratic_system_add_to_dict():
     assert output["solution_component"] == "A"
     assert output["components"] == ["B", "C"]
     assert output["convert_fractional_to_volumetric_energy"] is True
-    assert output["phases"][0]["D"] == [[1.0, 0.0], [0.0, 1.0]]
-    assert output["phases"][0]["custom"] == 7
-    assert output["phases"][0]["A"] == [[2.0, 0.5], [0.5, 4.0]]
-    assert output["phases"][0]["c0"] == [0.2, 0.3]
-    assert output["phases"][1]["name"] == "BCC"
-    assert output["phases"][1]["c0"] == [-1.0, -1.0]
-    assert output["phases"][1]["D"] == [[-1.0, -1.0], [-1.0, -1.0]]
+    assert output["phases"][0]["name"] == "BCC"
+    assert output["phases"][0]["D"] == [[-1.0, -1.0], [-1.0, -1.0]]
+    assert output["phases"][0]["c0"] == [-1.0, -1.0]
+    assert output["phases"][1]["name"] == "FCC"
+    assert output["phases"][1]["D"] == [[1.0, 0.0], [0.0, 1.0]]
+    assert output["phases"][1]["custom"] == 7
+    assert output["phases"][1]["A"] == [[2.0, 0.5], [0.5, 4.0]]
+    assert output["phases"][1]["c0"] == [0.2, 0.3]
     assert output["Vm"] == 2.5
     assert output["sigma"] == [[1.0, 2.0], [3.0, 4.0]]
     assert output["mu_int"] == [[-1.0, -1.0], [-1.0, -1.0]]
-    assert output["order_parameters"] == ["FCC", "BCC"]
+    assert output["order_parameters"] == ["BCC", "FCC"]
     assert output["comments"] == ["retained"]
     json.dumps(output)
 
