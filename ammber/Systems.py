@@ -1,3 +1,5 @@
+import itertools
+import math
 import warnings
 
 from scipy.spatial import ConvexHull, cKDTree
@@ -5,7 +7,9 @@ from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 from scipy.interpolate import LinearNDInterpolator
 import numpy as np
-from pycalphad import calculate
+from pycalphad import Model, calculate
+from pycalphad.core.utils import filter_phases
+from pycalphad import variables as v
 
 
 def _as_composition_array(xdata, Gdata):
@@ -29,6 +33,66 @@ def _as_composition_array(xdata, Gdata):
             f"xdata and Gdata length mismatch: {xdata.shape[0]} vs {Gdata.shape[0]}"
         )
     return xdata, Gdata
+
+
+def _simplex_grid_size(k, n):
+    """Number of points of an n-division grid on the (k-1)-simplex."""
+    return math.comb(n + k - 1, k - 1)
+
+
+def _simplex_grid(k, n):
+    """
+    All points of a regular n-division grid on the (k-1)-simplex, shape (m, k).
+
+    Generated directly by stars and bars (each choice of k-1 bar positions
+    among n+k-1 slots is one point), so the cost is the number of grid points,
+    not the (n+1)^(k-1) cube around them.
+    """
+    if k == 1:
+        return np.ones((1, 1))
+    bars = np.array(list(itertools.combinations(range(n + k - 1), k - 1)), dtype=float)
+    edges = np.column_stack([np.full(len(bars), -1.0), bars, np.full(len(bars), n + k - 1.0)])
+    return (np.diff(edges, axis=1) - 1) / n
+
+
+def _sample_phase_grid(db, elements, components, phase, temperature, n, max_points):
+    """
+    Sample a phase on a regular grid of its sublattice site fractions.
+
+    Each sublattice gets an n-division simplex grid; the grids are combined as
+    a Cartesian product, coarsened until it has at most max_points points.
+    Points that map to the same overall composition keep the lowest G, which is
+    the phase's free energy after minimising over internal degrees of freedom.
+    Returns xdata (npts, n_indep) and Gdata (npts,).
+    """
+    constituents = Model(db, elements, phase).constituents
+    sizes = [len(sublattice) for sublattice in constituents]
+    # Size the grid by counting first, so no oversized grid is ever built
+    m = n
+    while m > 1 and math.prod(_simplex_grid_size(k, m) for k in sizes) > max_points:
+        m = max(1, int(m * 0.8))
+    grids = [_simplex_grid(k, m) for k in sizes]
+    if m < n:
+        warnings.warn(
+            f"phase {phase!r}: site-fraction grid coarsened from n={n} to n={m} "
+            f"to stay under max_points={max_points}",
+            UserWarning,
+            stacklevel=3,
+        )
+    points = np.array([np.concatenate(parts) for parts in itertools.product(*grids)])
+    result = calculate(db, elements, phase, P=101325, T=temperature, points=points,
+                       output="GM")
+    Gdata = result.GM.values.reshape(-1)
+    xdata = np.column_stack(
+        [result.X.sel(component=c).values.reshape(-1) for c in components]
+    )
+    ok = np.isfinite(Gdata) & np.all(np.isfinite(xdata), axis=1)
+    xdata, Gdata = xdata[ok], Gdata[ok]
+    # Lowest G first within each composition; IsothermalDiscretePhase keeps the
+    # first point of each unique composition
+    key = np.round(xdata, 10)
+    order = np.lexsort((Gdata,) + tuple(key[:, i] for i in reversed(range(key.shape[1]))))
+    return key[order], Gdata[order]
 
 
 def _rows_in(points, reference, tol=1e-8):
@@ -721,7 +785,7 @@ class IsothermalDiscreteSystem:
         self._is_equilibrium_system = False
 
     def fromTDB(self, db, components, solution_component, temperature, phase_list=None,
-                pdens=1001):
+                sampling="grid", n=None, max_points=100000, pdens=None):
         """
         Constructs discrete phases from a pycalphad database.
 
@@ -736,26 +800,59 @@ class IsothermalDiscreteSystem:
             isotherm temperature
         phase_list : list (string)
             If specified, only listed phases will be constructed; otherwise,
-            all available phases will be constructed.
+            all phases that can form from the components will be constructed.
+        sampling : {"grid", "pycalphad"}
+            "grid" (default): each phase is sampled on a regular grid of its
+            sublattice site fractions, and points with the same overall
+            composition keep the lowest G (the free energy minimised over
+            internal degrees of freedom). The composition coverage is even, so
+            the hull and fits near equilibrium are reproducible.
+            "pycalphad": pycalphad's own sampling (``calculate`` with
+            ``pdens``), which is random away from the endmembers.
+        n : int
+            Grid only. Divisions of each sublattice's site-fraction simplex
+            (default 400). The Cartesian product over sublattices is coarsened
+            until it has at most max_points points, with a warning.
+        max_points : int
+            Grid only. Maximum number of site-fraction points per phase.
         pdens : int
-            Sampling density passed to pycalphad's calculate (points per
-            degree of freedom of each phase). Larger values resolve the free
-            energy near equilibrium compositions better, at higher cost.
+            pycalphad only. Points per degree of freedom passed to
+            ``calculate`` (default 1001).
         """
+        if sampling not in ("grid", "pycalphad"):
+            raise ValueError('sampling must be "grid" or "pycalphad"')
+        if sampling == "grid" and pdens is not None:
+            raise ValueError('pdens only applies to sampling="pycalphad"')
+        if sampling == "pycalphad" and n is not None:
+            raise ValueError('n only applies to sampling="grid"')
+        n = 400 if n is None else int(n)
+        pdens = 1001 if pdens is None else pdens
+
         components = list(components)
         elements = components + [solution_component, "VA"]
         self.components = components
         self.solution_component = solution_component
         if phase_list is None:
-            phase_list = list(db.phases.keys())
-            cal = calculate(db, elements, phase_list, P=101325, T=temperature, output="GM", pdens=pdens)
-            phase_list = set(cal.Phase.data[0][0][0])
+            if sampling == "grid":
+                species = [v.Species(e) for e in elements]
+                phase_list = sorted(filter_phases(db, species))
+            else:
+                phase_list = list(db.phases.keys())
+                cal = calculate(db, elements, phase_list, P=101325, T=temperature,
+                                output="GM", pdens=pdens)
+                phase_list = set(cal.Phase.data[0][0][0])
         for phase_name in phase_list:
-            result = calculate(db, elements, phase_name, P=101325, T=temperature, output="GM", pdens=pdens)
-            x_cols = [result.X.sel(component=c).data[0][0][0] for c in components]
-            xdata = np.stack(x_cols, axis=-1)
+            if sampling == "grid":
+                xdata, Gdata = _sample_phase_grid(db, elements, components, phase_name,
+                                                  temperature, n, max_points)
+            else:
+                result = calculate(db, elements, phase_name, P=101325, T=temperature,
+                                   output="GM", pdens=pdens)
+                x_cols = [result.X.sel(component=c).data[0][0][0] for c in components]
+                xdata = np.stack(x_cols, axis=-1)
+                Gdata = result.GM.data[0][0][0]
             self.phases[phase_name] = IsothermalDiscretePhase(
-                phase_name, xdata, result.GM.data[0][0][0], T=temperature
+                phase_name, xdata, Gdata, T=temperature
             )
 
     def add_phase(self, name, xdata, Gdata, T=0.0):
