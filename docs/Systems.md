@@ -90,6 +90,14 @@ composition branches when they are farther apart than the threshold.
 `resample_near_equilibrium(x, xdist=0.001, npts=21)` samples source phases in a
 local neighborhood of equilibrium compositions. The distance is measured in
 full composition space, including the dependent solvent fraction.
+`mask_near_equilibrium(x, xdist=0.001)` selects the same neighborhoods but keeps
+the original data points inside them instead of interpolating onto a grid, so
+the energies are exact and the point density follows the original sampling.
+
+The single-phase equivalents are
+`IsothermalDiscretePhase.resample_near_xpoint(x, xdist=0.04, npts=21)` and
+`IsothermalDiscretePhase.mask_near_xpoint(x, xdist=0.04)`; the latter raises
+`ValueError` if no point lies within `xdist`.
 
 ### Adding or removing a linear potential
 
