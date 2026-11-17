@@ -327,6 +327,45 @@ class IsothermalDiscretePhase:
         in_ball = _simplex_distance(xpoints, x) <= xdist
         return self.resample(xpoints[in_simplex & in_ball])
 
+    def mask_near_xpoint(self, x, xdist=0.04):
+        """
+        Keep the points of this phase within a solvent-invariant distance of x.
+
+        Unlike ``resample_near_xpoint``, no new points are made: the result is
+        the subset of the original data, so its energies are exact but its
+        point density follows the original sampling.
+
+        Parameters
+        ----------
+        x : list, array
+            Composition of the independent components, shape (n_indep,) or
+            (1, n_indep).
+        xdist : float
+            Radius in full mole-fraction space, including the solvent.
+
+        Returns
+        -------
+        IsothermalDiscretePhase
+
+        Raises
+        ------
+        ValueError
+            If no point lies within xdist of x.
+        """
+        x = np.asarray(x, dtype=float).reshape(-1)
+        if x.size != self.n_indep:
+            raise ValueError(f"x must contain {self.n_indep} independent components")
+        if xdist < 0:
+            raise ValueError("xdist must be non-negative")
+        distance = _simplex_distance(self.xdata, x)
+        mask = distance <= xdist
+        if not mask.any():
+            raise ValueError(
+                f"phase {self.name!r} has no points within {xdist} of {x.tolist()} "
+                f"(nearest is {distance.min():.3g} away)"
+            )
+        return IsothermalDiscretePhase(self.name, self.xdata[mask], self.Gdata[mask], self.T)
+
     def free_energy(self, x):
         """
         Returns the estimated free energy by interpolating at composition x
@@ -907,6 +946,38 @@ class IsothermalDiscreteSystem:
         npts : positive integer
             Number of grid points along each independent composition axis.
         """
+        return self._near_equilibrium(
+            x, lambda phase, xeq: phase.resample_near_xpoint(xeq, xdist=xdist, npts=npts)
+        )
+
+    def mask_near_equilibrium(self, x, xdist=0.001):
+        """
+        Keep the points of each phase near its equilibrium compositions at x.
+
+        Unlike ``resample_near_equilibrium``, no new points are made: each phase
+        is the subset of its original data within xdist of an equilibrium
+        composition (see ``IsothermalDiscretePhase.mask_near_xpoint``). The
+        equilibrium compositions are hull vertices, so every phase keeps at
+        least that point.
+
+        Parameters
+        ----------
+        x : list, array
+            Composition of the independent components.
+        xdist : float
+            Radius in full mole-fraction space around each equilibrium
+            composition.
+        """
+        return self._near_equilibrium(
+            x, lambda phase, xeq: phase.mask_near_xpoint(xeq, xdist=xdist)
+        )
+
+    def _near_equilibrium(self, x, select):
+        """
+        New system with, for each phase at the equilibrium at x,
+        ``select(source_phase, x_equilibrium)``; points from several vertices of
+        the same phase are merged.
+        """
         equilibrium = self.get_equilibrium(x)
         new_system = IsothermalDiscreteSystem(
             components=self.components,
@@ -926,9 +997,7 @@ class IsothermalDiscreteSystem:
             else:
                 continue
             source_phase = self.phases[source_phase_name]
-            resampled = source_phase.resample_near_xpoint(
-                xeq, xdist=xdist, npts=npts
-            )
+            resampled = select(source_phase, xeq)
             if phase in new_system.phases:
                 existing = new_system.phases[phase]
                 xdata = np.vstack((existing.xdata, resampled.xdata))
