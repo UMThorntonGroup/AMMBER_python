@@ -47,11 +47,25 @@ when there is only one energy value. Duplicate compositions are removed,
 keeping the first corresponding energy.
 
 Alternatively, `IsothermalDiscreteSystem.fromTDB(db, components,
-solution_component, temperature, phase_list=None, pdens=1001)` samples phases
-from a pycalphad database. If `phase_list` is omitted, the system determines
-which phases are present at the requested temperature. `pdens` is the pycalphad
-sampling density (points per degree of freedom); raise it to resolve the free
-energy near equilibrium compositions when fitting quadratics.
+solution_component, temperature, phase_list=None, sampling="grid", n=None,
+max_points=100000, pdens=None)` samples phases from a pycalphad database. If
+`phase_list` is omitted, every phase that can form from the components is
+sampled.
+
+- `sampling="grid"` (default) samples each phase on a regular grid of its
+  sublattice site fractions, with `n` divisions per sublattice (default 400).
+  The product over sublattices is coarsened, with a warning, until it has at
+  most `max_points` points. Points with the same overall composition keep the
+  lowest G, i.e. the free energy minimised over internal degrees of freedom.
+  Composition coverage is even, which keeps the hull and fits near equilibrium
+  accurate and reproducible.
+- `sampling="pycalphad"` uses pycalphad's own sampling (`calculate` with
+  `pdens` points per degree of freedom, default 1001), which is random away
+  from the endmembers. Raise `pdens` to resolve the free energy near
+  equilibrium compositions.
+
+`n` and `max_points` apply only to the grid and `pdens` only to pycalphad
+sampling; passing `n` or `pdens` with the other method raises `ValueError`.
 
 ### Lower hull and equilibrium
 
