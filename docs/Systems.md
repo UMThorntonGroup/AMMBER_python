@@ -222,8 +222,10 @@ composition simplex with `npts` points along each axis.
 `add_to_dict(system_dict, add_templates=False, c0=None, Vm=None,
 convert_to_volumetric_energy=True)` writes the system's component metadata and
 quadratic phase coefficients into a JSON-compatible dictionary, modifying and
-returning the same dictionary. It uses the `phases` list format from the
-PRISMS-PF quadratic system files:
+returning the same dictionary. It uses the format of the AMMBER-PRISMS-PF
+quadratic system files: `phases` maps each phase name to its parameters, and
+`phase_order` lists the phase names in the order of the phase-indexed matrices
+(`sigma`, `mu_int`):
 
 ```python
 system_dict = {"dimensions": {"length_scale": 0.0}}
@@ -235,13 +237,29 @@ quadratic_system.add_to_dict(
 )
 ```
 
-Each phase entry receives `name`, `c_ref`, `A`, `B`, and `C`. Existing entries
-are matched by name, and unrelated keys such as a configured `D` matrix are
-preserved. With `add_templates=True`, missing per-phase `D` and `c0` entries
-are initialized to `-1` placeholders (shaped for the independent components);
-missing top-level `sigma`, `mu_int`, `l_int`, `Vm`, `order_parameters`, and
-`dimensions` fields are also added. Existing template values are not
-overwritten. The `c0` argument maps phase names to initial composition vectors.
+```json
+{
+  "phase_order": ["LIQUID", "FCC"],
+  "phases": {
+    "LIQUID": {"c_ref": [...], "A": [[...]], "B": [...], "C": -1.0, "D": [[...]], "c0": [...]},
+    "FCC": {"...": "..."}
+  },
+  "sigma": [[...], [...]]
+}
+```
+
+Each phase entry receives `c_ref`, `A`, `B`, and `C`. Existing entries are
+matched by name, and unrelated keys such as a configured `D` matrix are
+preserved. An existing `phase_order` is kept; phases new to the dictionary are
+appended to it, and without one it starts from the phases already present. It
+raises `ValueError` if `phase_order` names a phase with no entry, and warns if
+an existing `sigma` or `mu_int` does not match its length. With
+`add_templates=True`, missing per-phase `D` and `c0` entries are initialized to
+`-1` placeholders (shaped for the independent components); missing top-level
+`sigma`, `mu_int` (sized by `phase_order`), `l_int`, `Vm`, `order_parameters`
+(defaulting to `phase_order`), and `dimensions` fields are also added. Existing
+template values are not overwritten. The `c0` argument maps phase names to
+initial composition vectors.
 
 ## Ternary example
 

@@ -3,6 +3,7 @@ Tests for multicomponent isothermal discrete classes.
 """
 
 import numpy as np
+import pytest
 
 from ammber.Systems import (
     IsothermalDiscretePhase,
@@ -131,9 +132,7 @@ def test_isothermal_quadratic_system_add_to_dict():
     )
 
     output = {
-        "phases": [
-            {"name": "FCC", "D": [[1.0, 0.0], [0.0, 1.0]], "custom": 7}
-        ],
+        "phases": {"FCC": {"D": [[1.0, 0.0], [0.0, 1.0]], "custom": 7}},
         "Vm": 2.5,
         "comments": ["retained"],
         "sigma": [[1.0, 2.0], [3.0, 4.0]],
@@ -149,20 +148,48 @@ def test_isothermal_quadratic_system_add_to_dict():
     assert output["solution_component"] == "A"
     assert output["components"] == ["B", "C"]
     assert output["convert_fractional_to_volumetric_energy"] is True
-    assert output["phases"][0]["name"] == "BCC"
-    assert output["phases"][0]["D"] == [[-1.0, -1.0], [-1.0, -1.0]]
-    assert output["phases"][0]["c0"] == [-1.0, -1.0]
-    assert output["phases"][1]["name"] == "FCC"
-    assert output["phases"][1]["D"] == [[1.0, 0.0], [0.0, 1.0]]
-    assert output["phases"][1]["custom"] == 7
-    assert output["phases"][1]["A"] == [[2.0, 0.5], [0.5, 4.0]]
-    assert output["phases"][1]["c0"] == [0.2, 0.3]
+    assert output["phase_order"] == ["FCC", "BCC"]
+    assert output["phases"]["BCC"]["D"] == [[-1.0, -1.0], [-1.0, -1.0]]
+    assert output["phases"]["BCC"]["c0"] == [-1.0, -1.0]
+    assert "name" not in output["phases"]["BCC"]
+    assert output["phases"]["FCC"]["D"] == [[1.0, 0.0], [0.0, 1.0]]
+    assert output["phases"]["FCC"]["custom"] == 7
+    assert output["phases"]["FCC"]["A"] == [[2.0, 0.5], [0.5, 4.0]]
+    assert output["phases"]["FCC"]["c0"] == [0.2, 0.3]
     assert output["Vm"] == 2.5
     assert output["sigma"] == [[1.0, 2.0], [3.0, 4.0]]
     assert output["mu_int"] == [[-1.0, -1.0], [-1.0, -1.0]]
-    assert output["order_parameters"] == ["BCC", "FCC"]
+    assert output["order_parameters"] == ["FCC", "BCC"]
     assert output["comments"] == ["retained"]
     json.dumps(output)
+
+
+def test_isothermal_quadratic_system_add_to_dict_phase_order():
+    system = IsothermalQuadraticSystem(
+        components=["B", "C"], solution_component="A", T=900.0
+    )
+    for name in ("FCC", "BCC", "LIQUID"):
+        system.add_phase(name, A=np.eye(2), B=[0.0, 0.0], C=0.0, c_ref=[0.1, 0.1])
+
+    # An existing phase_order is kept and new phases are appended in system order
+    output = {"phase_order": ["LIQUID", "FCC"], "phases": {"LIQUID": {}, "FCC": {}}}
+    system.add_to_dict(output)
+    assert output["phase_order"] == ["LIQUID", "FCC", "BCC"]
+    assert list(output["phases"]) == ["LIQUID", "FCC", "BCC"]
+
+    # Without one, phase_order follows the phases already in the dict, then the system
+    output = system.add_to_dict({"phases": {"BCC": {"D": 1}}})
+    assert output["phase_order"] == ["BCC", "FCC", "LIQUID"]
+    assert output["phases"]["BCC"]["D"] == 1
+
+    with pytest.raises(ValueError, match="no entry"):
+        system.add_to_dict({"phase_order": ["HCP"], "phases": {}})
+    with pytest.raises(ValueError, match="duplicate"):
+        system.add_to_dict({"phase_order": ["FCC", "FCC"]})
+    with pytest.raises(TypeError, match="keyed by phase name"):
+        system.add_to_dict({"phases": [{"name": "FCC"}]})
+    with pytest.warns(UserWarning, match="sigma"):
+        system.add_to_dict({"sigma": [[1.0]]})
 
 
 def test_isothermal_quadratic_fit_without_equilibrium():

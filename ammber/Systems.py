@@ -1230,9 +1230,13 @@ class IsothermalQuadraticSystem:
         """
         Write this system's thermodynamic parameters into a AMMBER-PRISMS-PF dict.
 
-        Existing phase entries are updated by name, leaving their other
-        properties (for example ``D``) intact. Existing system-level template
-        and metadata values are also preserved.
+        ``system_dict["phases"]`` maps phase names to their parameters, and
+        ``system_dict["phase_order"]`` lists the phase names in the order used
+        for the phase-indexed matrices (``sigma``, ``mu_int``). Existing phase
+        entries are updated by name, leaving their other properties (for
+        example ``D``) intact; phases new to the dict are appended to
+        ``phase_order``. Existing system-level template and metadata values are
+        also preserved.
 
         Parameters
         ----------
@@ -1266,25 +1270,25 @@ class IsothermalQuadraticSystem:
             convert_to_volumetric_energy
         )
 
-        phases = system_dict.setdefault("phases", [])
-        if not isinstance(phases, list):
-            raise TypeError("system_dict['phases'] must be a list")
-        phases_by_name = {}
-        for phase_data in phases:
-            if not isinstance(phase_data, dict) or "name" not in phase_data:
-                raise ValueError("each existing phase entry must be a dict with a name")
-            phase_name = phase_data["name"]
-            if phase_name in phases_by_name:
-                raise ValueError(f"duplicate phase entry for {phase_name!r}")
-            phases_by_name[phase_name] = phase_data
+        phases = system_dict.setdefault("phases", {})
+        if not isinstance(phases, dict):
+            raise TypeError("system_dict['phases'] must be a dict keyed by phase name")
+        for phase_name, phase_data in phases.items():
+            if not isinstance(phase_data, dict):
+                raise ValueError(f"phase entry {phase_name!r} must be a dict")
+
+        phase_order = system_dict.get("phase_order")
+        if phase_order is None:
+            phase_order = list(phases)
+        elif not isinstance(phase_order, list):
+            raise TypeError("system_dict['phase_order'] must be a list of phase names")
+        else:
+            phase_order = list(phase_order)
+        if len(set(phase_order)) != len(phase_order):
+            raise ValueError("phase_order contains duplicate phase names")
 
         for phase_name, phase in self.phases.items():
-            phase_data = phases_by_name.get(phase_name)
-            if phase_data is None:
-                phase_data = {"name": phase_name}
-                phases.append(phase_data)
-                phases_by_name[phase_name] = phase_data
-
+            phase_data = phases.setdefault(phase_name, {})
             phase_data["c_ref"] = phase.c_ref.tolist()
             phase_data["A"] = phase.A.tolist()
             phase_data["B"] = phase.B.tolist()
@@ -1309,13 +1313,28 @@ class IsothermalQuadraticSystem:
                             )
                         phase_data["c0"] = initial_composition.tolist()
 
-        phases[:] = sorted(phases, key=lambda phase_data: str(phase_data["name"]))
+        # Every phase in the dict appears in phase_order exactly once
+        unknown = [name for name in phase_order if name not in phases]
+        if unknown:
+            raise ValueError(f"phase_order names phases with no entry: {unknown}")
+        phase_order.extend(name for name in phases if name not in phase_order)
+        system_dict["phase_order"] = phase_order
+
+        n_phases = len(phase_order)
+        for key in ("sigma", "mu_int"):
+            matrix = system_dict.get(key)
+            if matrix is not None and np.shape(matrix) != (n_phases, n_phases):
+                warnings.warn(
+                    f"system_dict[{key!r}] has shape {np.shape(matrix)} but "
+                    f"phase_order has {n_phases} phases",
+                    UserWarning,
+                    stacklevel=2,
+                )
 
         if add_templates:
-            n_phases = len(self.phases)
             system_dict.setdefault("l_int", -1.0)
             system_dict.setdefault("Vm", Vm if Vm is not None else -1.0)
-            system_dict.setdefault("order_parameters", sorted(self.phases, key=str))
+            system_dict.setdefault("order_parameters", list(phase_order))
             system_dict.setdefault(
                 "dimensions",
                 {
