@@ -29,7 +29,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ammber"
-version = "0.1.8"
+version = "0.2.0"
 description = "A Python package for parametrizing Gibbs free energy curves for phase-field modeling"
 authors = [
     { name = "Xander Mensah", email = "xmen@umich.edu" },
