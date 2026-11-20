@@ -1,3 +1,8 @@
+[![Tests](https://github.com/UMThorntonGroup/AMMBER_python/actions/workflows/python-package.yml/badge.svg?branch=main)](https://github.com/UMThorntonGroup/AMMBER_python/actions/workflows/python-package.yml)
+[![PyPI](https://img.shields.io/pypi/v/ammber)](https://pypi.org/project/ammber/)
+[![Python versions](https://img.shields.io/pypi/pyversions/ammber)](https://pypi.org/project/ammber/)
+[![License](https://img.shields.io/github/license/UMThorntonGroup/AMMBER_python)](LICENSE.md)
+
 # What is AMMBER?
 The AI-assisted Microstructure Model BuildER (AMMBER) is an ongoing project at the University of Michigan.
 
