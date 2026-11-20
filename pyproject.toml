@@ -1,5 +1,5 @@
 #
-# Copyright 2024 W. Beck Andrews
+# Copyright 2026 Xander Mensah
 #
 # MIT License
 #
@@ -24,7 +24,7 @@
 
 
 [build-system]
-requires = ["setuptools>=80", "wheel"]
+requires = ["setuptools>=80"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -41,7 +41,7 @@ license = "MIT"
 license-files = ["LICENSE.md"]
 readme = "README.md"
 
-requires-python = ">=3.11, <4"
+requires-python = ">=3.11"
 
 dependencies = [
     "numpy>=2",
@@ -49,14 +49,32 @@ dependencies = [
     "scipy",
 ]
 
-classifiers=[
-    'Development Status :: 1 - Planning',
-    'Intended Audience :: Science/Research',
-    'Programming Language :: Python :: 3',
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+    "flake8",
 ]
 
 [tool.setuptools.packages.find]
 include = ["ammber"]
 
 [project.urls]
-Homepage = "https://github.com/UMThorntongroup/"
+Homepage = "https://github.com/UMThorntonGroup/AMMBER_python"
+Repository = "https://github.com/UMThorntonGroup/AMMBER_python"
+Documentation = "https://github.com/UMThorntonGroup/AMMBER_python/tree/main/docs"
+Issues = "https://github.com/UMThorntonGroup/AMMBER_python/issues"
+
+[tool.pytest.ini_options]
+testpaths = ["test"]
